@@ -38,7 +38,7 @@ final class ApiResponse
     }
 
     /** Liste paginée : les informations de pagination vont dans « meta ». */
-    public static function paginated(LengthAwarePaginator $paginator, string $resource, ?string $message = null): JsonResponse
+    public static function paginated(LengthAwarePaginator $paginator, string $resource, ?string $message = null, array $extraMeta = []): JsonResponse
     {
         /** @var class-string<JsonResource> $resource */
         $items = $resource::collection($paginator->getCollection());
@@ -51,6 +51,7 @@ final class ApiResponse
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
                 'last_page' => $paginator->lastPage(),
+                ...$extraMeta,
             ],
         );
     }

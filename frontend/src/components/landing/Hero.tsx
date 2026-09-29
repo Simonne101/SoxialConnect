@@ -5,13 +5,8 @@ import { Button } from "@/components/ui/button"
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
 import { HERO_PNG, HERO_SIZES, HERO_SRCSET } from "./heroImage"
 
-// TODO(UX-02) : « 10k+ » et « 99 % » viennent de la maquette et sont fictifs —
-// à remplacer par des chiffres réels (ou à retirer) avant toute mise en ligne publique.
-const STATS = [
-  { value: "8+", label: "réseaux sociaux" },
-  { value: "10k+", label: "créateurs & entreprises" },
-  { value: "99%", label: "de satisfaction" },
-]
+// Bloc de chiffres (« 8+ / 10k+ / 99 % ») retiré : chiffres fictifs (audit UX-02) et « 8+ » redondant
+// avec la rangée d'icônes des réseaux. À réintroduire uniquement avec des données réelles et vérifiables.
 
 export function Hero() {
   return (
@@ -54,16 +49,6 @@ export function Hero() {
             </ul>
             <p className="mt-3 text-sm text-ink-muted">+ d'autres plateformes bientôt</p>
           </div>
-
-          <dl className="mt-10 grid grid-cols-3 gap-4 border-t border-border pt-8 text-left">
-            {STATS.map((s) => (
-              <div key={s.label}>
-                <dt className="sr-only">{s.label}</dt>
-                <dd className="text-2xl font-extrabold text-ink-soft sm:text-3xl">{s.value}</dd>
-                <dd className="mt-1 text-xs text-ink-muted sm:text-sm">{s.label}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
 
         {/* Visuel : Images/Image sect-hero.png (versions WebP optimisées + PNG d'origine en repli) */}

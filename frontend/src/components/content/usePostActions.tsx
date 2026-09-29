@@ -9,6 +9,8 @@ import {
   useReschedule,
   useRetryPost,
 } from "@/hooks/queries/content"
+import { features, PUBLISHING_UNAVAILABLE } from "@/lib/features"
+import { apiErrorMessage } from "@/lib/http"
 import type { Post } from "@/types"
 import { ScheduleDialog } from "./ScheduleDialog"
 import { postTitle } from "./postUtils"
@@ -21,6 +23,9 @@ export interface PostActions {
   askReschedule: (post: Post) => void
   retry: (post: Post) => void
 }
+
+/** Erreur d'API → toast lisible (validation, conflit de version, publication introuvable…). */
+const onError = (fallback: string) => (error: unknown) => toast.error(apiErrorMessage(error, fallback))
 
 /** Actions communes sur une publication (liste, brouillons, calendrier, détail) + leurs dialogues. */
 export function usePostActions(onDone?: () => void) {
@@ -38,20 +43,31 @@ export function usePostActions(onDone?: () => void) {
     duplicate: (post) =>
       dup.mutate(post.id, {
         onSuccess: () => toast.success("Publication dupliquée dans vos brouillons."),
+        onError: onError("La duplication a échoué. Réessayez."),
       }),
     askDelete: setToDelete,
     cancel: (post) =>
-      cancel.mutate(post.id, {
-        onSuccess: () => {
-          toast.success("Programmation annulée : la publication est repassée en brouillon.")
-          onDone?.()
+      cancel.mutate(
+        { id: post.id, lockVersion: post.lockVersion },
+        {
+          onSuccess: () => {
+            toast.success("Programmation annulée. Vous pouvez la reprogrammer à tout moment.")
+            onDone?.()
+          },
+          onError: onError("L'annulation a échoué. Réessayez."),
         },
-      }),
+      ),
     askReschedule: setToSchedule,
-    retry: (post) =>
+    retry: (post) => {
+      if (!features.publishing) {
+        toast.info(`${PUBLISHING_UNAVAILABLE}.`)
+        return
+      }
       retry.mutate(post.id, {
         onSuccess: () => toast.info("Nouvelle tentative de publication en cours…"),
-      }),
+        onError: onError("La nouvelle tentative a échoué."),
+      })
+    },
   }
 
   const dialogs = (
@@ -69,6 +85,7 @@ export function usePostActions(onDone?: () => void) {
               toast.success("Publication supprimée.")
               onDone?.()
             },
+            onError: onError("La suppression a échoué. Réessayez."),
           })
           setToDelete(null)
         }}
@@ -79,16 +96,17 @@ export function usePostActions(onDone?: () => void) {
           open
           onOpenChange={(o) => !o && setToSchedule(null)}
           initial={toSchedule.scheduledAt}
-          confirmLabel="Reprogrammer"
+          confirmLabel={toSchedule.status === "scheduled" ? "Reprogrammer" : "Programmer"}
           pending={reschedule.isPending}
           onConfirm={(iso) =>
             reschedule.mutate(
-              { id: toSchedule.id, scheduledAt: iso },
+              { id: toSchedule.id, scheduledAt: iso, lockVersion: toSchedule.lockVersion },
               {
                 onSuccess: () => {
-                  toast.success("Publication reprogrammée.")
+                  toast.success(toSchedule.status === "scheduled" ? "Publication reprogrammée." : "Publication programmée.")
                   setToSchedule(null)
                 },
+                onError: onError("La programmation a échoué. Réessayez."),
               },
             )
           }

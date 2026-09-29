@@ -44,6 +44,12 @@ class SocialAccount extends Model
         return $this->status === SocialAccountStatus::Connected;
     }
 
+    /** Compte de démonstration (développement local) : aucun token, aucun appel à une API sociale. */
+    public function isDemo(): bool
+    {
+        return ($this->metadata['demo'] ?? false) === true;
+    }
+
     public function platform(): BelongsTo
     {
         return $this->belongsTo(SocialPlatform::class, 'social_platform_id');

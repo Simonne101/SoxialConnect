@@ -33,6 +33,12 @@ class PostPolicy
         return $user->isSuspended() ? Response::deny('Compte suspendu.') : $this->owns($user, $post);
     }
 
+    /** Dupliquer = lire la source + créer une publication. */
+    public function duplicate(User $user, Post $post): Response
+    {
+        return $user->isSuspended() ? Response::deny('Compte suspendu.') : $this->owns($user, $post);
+    }
+
     public function delete(User $user, Post $post): Response
     {
         return $user->isSuspended() ? Response::deny('Compte suspendu.') : $this->owns($user, $post);

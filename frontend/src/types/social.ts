@@ -76,4 +76,6 @@ export interface SocialAccount {
   connectedAt: string | null
   lastSyncedAt: string | null
   statusMessage: string | null
+  /** Compte fictif de développement local (aucune connexion réelle). */
+  isDemo?: boolean
 }

@@ -41,6 +41,8 @@ import { usePost, useSavePost } from "@/hooks/queries/content"
 import { useSocialAccounts } from "@/hooks/queries/social"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { useMediaMap } from "@/hooks/useMediaMap"
+import { features, MEDIA_UNAVAILABLE, PUBLISHING_UNAVAILABLE } from "@/lib/features"
+import { ApiError, apiErrorMessage } from "@/lib/http"
 import { PLATFORMS } from "@/lib/platforms"
 import { cn } from "@/lib/utils"
 import type { PlatformKey } from "@/types"
@@ -71,7 +73,8 @@ export default function ComposerPage() {
   const mediaMap = useMediaMap()
   const save = useSavePost()
 
-  const form = useForm<ComposerValues>({ defaultValues: { ...EMPTY_VALUES, body: prefill.body ?? "", mediaIds: prefill.mediaIds ?? [] } })
+  // Médias désactivés tant que la phase Médias n'est pas livrée : aucun identifiant n'est envoyé.
+  const form = useForm<ComposerValues>({ defaultValues: { ...EMPTY_VALUES, body: prefill.body ?? "", mediaIds: features.media ? (prefill.mediaIds ?? []) : [] } })
   const { register, watch, setValue, reset, formState } = form
   // Lu pendant le rendu pour que React Hook Form suive isDirty (proxy d'abonnement).
   const { isDirty } = formState
@@ -136,6 +139,7 @@ export default function ComposerPage() {
   }
 
   const submit = (mode: Mode, scheduledAt: string | null = null) => {
+    if (mode === "publish" && !features.publishing) return
     const found = validateComposer(values, accounts, mediaMap, mode)
     setIssues(found)
     const blocking = found.filter((i) => i.level === "error")
@@ -151,7 +155,7 @@ export default function ComposerPage() {
     }
     setSubmitted(true)
     save.mutate(
-      { input: toDraftInput(values, accounts, scheduledAt), mode, id: postId },
+      { input: toDraftInput(values, accounts, scheduledAt), mode, id: postId, lockVersion: existing.data?.lockVersion },
       {
         onSuccess: () => {
           setScheduleOpen(false)
@@ -166,9 +170,23 @@ export default function ComposerPage() {
             navigate("/content/drafts")
           }
         },
-        onError: () => {
+        onError: (error) => {
           setSubmitted(false)
-          toast.error("L'enregistrement a échoué. Réessayez.")
+          if (error instanceof ApiError && error.status === 422) {
+            // Erreurs de validation du serveur : affichées dans l'encadré « Avant de continuer ».
+            const messages = [...new Set(Object.values(error.errors).flat())]
+            setIssues(messages.map((message) => ({ platform: null, level: "error", message })))
+            setScheduleOpen(false)
+            toast.error(messages.length === 1 ? messages[0] : `${messages.length} points à corriger avant de continuer.`)
+          } else if (error instanceof ApiError && error.status === 409) {
+            // Conflit de version : la publication a changé ailleurs (autre onglet, autre action).
+            setScheduleOpen(false)
+            toast.error(error.message, {
+              action: { label: "Recharger", onClick: () => void existing.refetch() },
+            })
+          } else {
+            toast.error(apiErrorMessage(error, "L'enregistrement a échoué. Réessayez."))
+          }
         },
       },
     )
@@ -262,7 +280,19 @@ export default function ComposerPage() {
         <div className="grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
           <section className="surface-card p-5" aria-labelledby="step-media">
             <StepTitle n={2} id="step-media">Ajoutez des médias</StepTitle>
-            {media.length === 0 ? (
+            {!features.media ? (
+              // Emplacement conservé : l'ajout de médias arrive avec la phase Médias.
+              <div className="mt-4 flex w-full items-center gap-4 rounded-xl border border-dashed border-border bg-page/60 p-4 text-left" aria-disabled="true">
+                <span className="inline-flex size-12 items-center justify-center rounded-xl bg-card text-ink-muted shadow-card" aria-hidden="true">
+                  <ImagePlus className="size-6" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-ink-soft">Ajouter des médias</span>
+                  <span className="block text-xs text-ink-muted">Images, vidéos, GIF</span>
+                </span>
+                <span className="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-600">{MEDIA_UNAVAILABLE}</span>
+              </div>
+            ) : media.length === 0 ? (
               <button type="button" onClick={() => setPickerOpen(true)} className="mt-4 flex w-full items-center gap-4 rounded-xl border border-dashed border-brand-200 bg-brand-50/40 p-4 text-left hover:bg-brand-50">
                 <span className="inline-flex size-12 items-center justify-center rounded-xl bg-card text-brand-500 shadow-card" aria-hidden="true">
                   <ImagePlus className="size-6" />
@@ -407,13 +437,25 @@ export default function ComposerPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <Button type="button" className="order-first col-span-2 md:order-none md:flex-none" disabled={pending} onClick={() => submit("publish")}>
-            {pending ? <LoaderCircle className="animate-spin" /> : <Send />} Publier maintenant
-          </Button>
+          {features.publishing ? (
+            <Button type="button" className="order-first col-span-2 md:order-none md:flex-none" disabled={pending} onClick={() => submit("publish")}>
+              {pending ? <LoaderCircle className="animate-spin" /> : <Send />} Publier maintenant
+            </Button>
+          ) : (
+            // Visible pour préparer l'UX, désactivé : aucune publication réelle avant la phase Publishing.
+            <div className="order-first col-span-2 flex flex-col items-stretch gap-1 md:order-none md:flex-none md:items-center">
+              <Button type="button" disabled aria-describedby="publish-unavailable">
+                <Send /> Publier maintenant
+              </Button>
+              <span id="publish-unavailable" className="text-center text-[11px] leading-tight text-ink-muted">
+                {PUBLISHING_UNAVAILABLE}
+              </span>
+            </div>
+          )}
         </div>
       </form>
 
-      {pickerOpen && (
+      {pickerOpen && features.media && (
         <MediaPickerDialog open onOpenChange={setPickerOpen} initial={values.mediaIds} onConfirm={(ids) => setValue("mediaIds", ids, { shouldDirty: true })} />
       )}
       {scheduleOpen && (

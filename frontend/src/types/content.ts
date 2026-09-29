@@ -89,6 +89,8 @@ export interface Post {
   mediaIds: string[]
   variants: PostVariant[]
   metrics: PostMetrics | null
+  /** Verrou optimiste : renvoyé à chaque écriture, refus 409 si la publication a changé entre-temps. */
+  lockVersion: number
   createdAt: string
   updatedAt: string
 }
@@ -111,6 +113,22 @@ export interface PostDraftInput {
 
 export interface PostFilters {
   search?: string
-  status?: PostStatus | "all"
+  status?: PostStatus | PostStatus[] | "all"
   platform?: PlatformKey | "all"
+  /** Calendrier : bornes ISO 8601 appliquées à la date de programmation. */
+  from?: string
+  to?: string
+  page?: number
+  perPage?: number
+}
+
+/** Page de résultats (GET /api/v1/content/posts). */
+export interface PostPage {
+  items: Post[]
+  page: number
+  perPage: number
+  total: number
+  lastPage: number
+  /** Nombre de publications par statut, pour les filtres hors statut (onglets). */
+  statusCounts: Record<PostStatus, number>
 }

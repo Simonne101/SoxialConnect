@@ -7,8 +7,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { features, PUBLISHING_UNAVAILABLE } from "@/lib/features"
 import type { Post } from "@/types"
-import { canEdit, postTitle } from "./postUtils"
+import { canEdit, canReschedule, postTitle } from "./postUtils"
 import type { PostActions } from "./usePostActions"
 
 export function PostActionsMenu({ post, actions, onOpen }: { post: Post; actions: PostActions; onOpen?: (post: Post) => void }) {
@@ -33,9 +34,9 @@ export function PostActionsMenu({ post, actions, onOpen }: { post: Post; actions
         <DropdownMenuItem onSelect={() => actions.duplicate(post)}>
           <Copy /> Dupliquer
         </DropdownMenuItem>
-        {(post.status === "scheduled" || post.status === "draft") && (
+        {canReschedule(post) && (
           <DropdownMenuItem onSelect={() => actions.askReschedule(post)}>
-            <CalendarClock /> {post.status === "draft" ? "Programmer" : "Reprogrammer"}
+            <CalendarClock /> {post.status === "scheduled" ? "Reprogrammer" : "Programmer"}
           </DropdownMenuItem>
         )}
         {post.status === "scheduled" && (
@@ -44,8 +45,9 @@ export function PostActionsMenu({ post, actions, onOpen }: { post: Post; actions
           </DropdownMenuItem>
         )}
         {(post.status === "failed" || post.status === "partially_published") && (
-          <DropdownMenuItem onSelect={() => actions.retry(post)}>
+          <DropdownMenuItem disabled={!features.publishing} onSelect={() => actions.retry(post)}>
             <RotateCw /> Réessayer la publication
+            {!features.publishing && <span className="sr-only"> ({PUBLISHING_UNAVAILABLE})</span>}
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />

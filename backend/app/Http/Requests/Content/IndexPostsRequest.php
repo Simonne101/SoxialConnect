@@ -14,6 +14,14 @@ class IndexPostsRequest extends FormRequest
         return $this->user() !== null;
     }
 
+    /** « ?status=draft » est accepté comme « ?status[]=draft ». */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('status'))) {
+            $this->merge(['status' => [$this->input('status')]]);
+        }
+    }
+
     public function rules(): array
     {
         return [

@@ -30,11 +30,12 @@ export default function DashboardPage() {
   const [chartPeriod, setChartPeriod] = useState<AnalyticsPeriod>("7d")
   const summary = useDashboardSummary(range)
   const accounts = useSocialAccounts()
-  const posts = usePosts()
+  // Publications récentes et à venir (100 premières) : prochaines publications et échecs.
+  const posts = usePosts({ perPage: 100 })
   const activity = useActivity()
   const analytics = useAnalytics(chartPeriod)
 
-  const failedPosts = posts.data?.filter((p) => p.status === "failed" || p.status === "partially_published") ?? []
+  const failedPosts = posts.data?.items.filter((p) => p.status === "failed" || p.status === "partially_published") ?? []
   const s = summary.data
   const changeLabel = range === "today" ? "vs hier" : "vs période précédente"
 
@@ -125,7 +126,7 @@ export default function DashboardPage() {
           </div>
         </SectionCard>
         <ConnectedNetworks accounts={accounts.data} isLoading={accounts.isLoading} />
-        <UpcomingPosts posts={posts.data} isLoading={posts.isLoading} />
+        <UpcomingPosts posts={posts.data?.items} isLoading={posts.isLoading} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">

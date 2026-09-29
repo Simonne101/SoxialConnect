@@ -1,7 +1,300 @@
-// Service Content — futur : /api/v1/posts. Contrat identique, implémentation mockée.
-import type { Post, PostDraftInput, PostFilters, PostStatus, PostVariant, VariantStatus } from "@/types"
+// Service Content.
+// - Backend branché (VITE_API_URL défini) : /api/v1/content/posts (Laravel).
+// - Sinon : données de démonstration en mémoire, même contrat.
+// Aucune publication réelle n'est déclenchée ici (phase Publishing).
+import type {
+  PlatformKey,
+  Post,
+  PostDraftInput,
+  PostFilters,
+  PostFormat,
+  PostPage,
+  PostSource,
+  PostStatus,
+  PostVariant,
+  VariantOptions,
+  VariantStatus,
+} from "@/types"
+import { ApiError, http, isApiEnabled } from "@/lib/http"
 import { uid } from "@/mocks/helpers"
 import { delay, notFound, store } from "./mockStore"
+
+export type SaveMode = "draft" | "schedule" | "publish"
+
+const DEFAULT_PER_PAGE = 25
+const ALL_STATUSES: PostStatus[] = ["draft", "scheduled", "processing", "partially_published", "published", "failed", "cancelled"]
+
+// --- Conversion API ↔ frontend ------------------------------------------------------------------
+// Format de backend/app/Http/Resources/PostResource.php et PostVariantResource.php.
+
+interface ApiVariant {
+  id: string
+  social_account_id: string
+  platform: PlatformKey | null
+  format: PostFormat
+  body: string | null
+  options: VariantOptions | []
+  status: VariantStatus
+  scheduled_at: string | null
+  published_at: string | null
+  external_url: string | null
+  error_message: string | null
+}
+
+interface ApiPost {
+  id: string
+  title: string | null
+  body: string | null
+  status: PostStatus
+  scheduled_at: string | null
+  published_at: string | null
+  timezone: string
+  source: PostSource
+  lock_version: number
+  media_ids?: string[]
+  variants?: ApiVariant[]
+  created_at: string
+  updated_at: string
+}
+
+interface ApiPageMeta {
+  current_page: number
+  per_page: number
+  total: number
+  last_page: number
+  status_counts?: Partial<Record<PostStatus, number>>
+}
+
+/** Un objet JSON vide est sérialisé « [] » par PHP : on le normalise en {}. */
+const asOptions = (o: VariantOptions | [] | null | undefined): VariantOptions => (o && !Array.isArray(o) ? o : {})
+
+export function toPost(p: ApiPost): Post {
+  return {
+    id: p.id,
+    title: p.title,
+    body: p.body ?? "",
+    status: p.status,
+    scheduledAt: p.scheduled_at,
+    publishedAt: p.published_at,
+    timezone: p.timezone,
+    source: p.source,
+    mediaIds: p.media_ids ?? [],
+    variants: (p.variants ?? [])
+      .filter((v) => v.platform !== null)
+      .map((v) => ({
+        id: v.id,
+        postId: p.id,
+        platform: v.platform as PlatformKey,
+        socialAccountId: v.social_account_id,
+        format: v.format,
+        body: v.body,
+        options: asOptions(v.options),
+        status: v.status,
+        scheduledAt: v.scheduled_at,
+        publishedAt: v.published_at,
+        externalUrl: v.external_url,
+        errorMessage: v.error_message,
+      })),
+    metrics: null, // statistiques : phase Analytics
+    lockVersion: p.lock_version,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+  }
+}
+
+function toPayload(input: PostDraftInput, mode: Exclude<SaveMode, "publish">, lockVersion?: number) {
+  return {
+    mode,
+    title: input.title,
+    body: input.body,
+    timezone: input.timezone,
+    scheduled_at: mode === "schedule" ? input.scheduledAt : null,
+    media_ids: input.mediaIds,
+    targets: input.targets.map((t) => ({
+      social_account_id: t.socialAccountId,
+      format: t.format,
+      body: t.body,
+      options: t.options,
+    })),
+    ...(lockVersion !== undefined ? { lock_version: lockVersion } : {}),
+  }
+}
+
+function toQuery(f: PostFilters): string {
+  const q = new URLSearchParams()
+  const statuses = f.status === undefined || f.status === "all" ? [] : Array.isArray(f.status) ? f.status : [f.status]
+  for (const s of statuses) q.append("status[]", s)
+  if (f.platform && f.platform !== "all") q.set("platform", f.platform)
+  if (f.search?.trim()) q.set("search", f.search.trim())
+  if (f.from) q.set("from", f.from)
+  if (f.to) q.set("to", f.to)
+  q.set("page", String(f.page ?? 1))
+  q.set("per_page", String(f.perPage ?? DEFAULT_PER_PAGE))
+  return q.toString()
+}
+
+const emptyCounts = (): Record<PostStatus, number> =>
+  Object.fromEntries(ALL_STATUSES.map((s) => [s, 0])) as Record<PostStatus, number>
+
+// --- Lecture ------------------------------------------------------------------------------------
+
+export async function listPosts(filters: PostFilters = {}): Promise<PostPage> {
+  if (isApiEnabled) {
+    const res = await http.get<ApiPost[]>(`/content/posts?${toQuery(filters)}`)
+    const meta = res!.meta as unknown as ApiPageMeta
+    return {
+      items: res!.data.map(toPost),
+      page: meta.current_page,
+      perPage: meta.per_page,
+      total: meta.total,
+      lastPage: meta.last_page,
+      statusCounts: { ...emptyCounts(), ...meta.status_counts },
+    }
+  }
+  return mockList(filters)
+}
+
+/** Toutes les publications d'une période (calendrier) : parcourt les pages de 100. */
+export async function listPostsInRange(filters: Omit<PostFilters, "page" | "perPage"> & { from: string; to: string }): Promise<Post[]> {
+  const items: Post[] = []
+  const MAX_PAGES = 10 // garde-fou : 1 000 publications par période affichée
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const res = await listPosts({ ...filters, page, perPage: 100 })
+    items.push(...res.items)
+    if (page >= res.lastPage) break
+  }
+  return items
+}
+
+export async function getPost(id: string): Promise<Post> {
+  if (isApiEnabled) {
+    const res = await http.get<ApiPost>(`/content/posts/${encodeURIComponent(id)}`)
+    return toPost(res!.data)
+  }
+  await delay(200)
+  const post = store.posts.find((p) => p.id === id)
+  return post ? structuredClone(post) : notFound("Publication")
+}
+
+// --- Écriture -----------------------------------------------------------------------------------
+
+export async function savePost(input: PostDraftInput, mode: SaveMode, id?: string, lockVersion?: number): Promise<Post> {
+  if (isApiEnabled) {
+    if (mode === "publish") {
+      // Garde-fou : aucune publication réelle avant la phase Publishing.
+      throw new ApiError(409, "La publication immédiate sera disponible avec la publication réelle.")
+    }
+    const body = toPayload(input, mode, id ? lockVersion : undefined)
+    const res = id
+      ? await http.put<ApiPost>(`/content/posts/${encodeURIComponent(id)}`, body)
+      : await http.post<ApiPost>("/content/posts", body)
+    return toPost(res!.data)
+  }
+  return mockSave(input, mode, id, lockVersion)
+}
+
+export async function deletePost(id: string): Promise<void> {
+  if (isApiEnabled) {
+    await http.delete(`/content/posts/${encodeURIComponent(id)}`)
+    return
+  }
+  await delay(300)
+  const index = store.posts.findIndex((p) => p.id === id)
+  if (index === -1) notFound("Publication")
+  store.posts.splice(index, 1)
+}
+
+export async function duplicatePost(id: string): Promise<Post> {
+  if (isApiEnabled) {
+    const res = await http.post<ApiPost>(`/content/posts/${encodeURIComponent(id)}/duplicate`)
+    return toPost(res!.data)
+  }
+  await delay(300)
+  const source = store.posts.find((p) => p.id === id) ?? notFound("Publication")
+  const copyId = uid("post")
+  const now = new Date().toISOString()
+  const copy: Post = {
+    ...structuredClone(source),
+    id: copyId,
+    title: source.title ? `${source.title} (copie)` : "Copie",
+    status: "draft",
+    scheduledAt: null,
+    publishedAt: null,
+    metrics: null,
+    lockVersion: 0,
+    createdAt: now,
+    updatedAt: now,
+    variants: source.variants.map((v) => ({
+      ...v,
+      id: uid("var"),
+      postId: copyId,
+      status: "draft",
+      scheduledAt: null,
+      publishedAt: null,
+      externalUrl: null,
+      errorMessage: null,
+    })),
+  }
+  store.posts.unshift(copy)
+  return structuredClone(copy)
+}
+
+/** Annule une programmation : statut « cancelled », date conservée (docs/database.md §3.3). */
+export async function cancelSchedule(id: string, lockVersion?: number): Promise<Post> {
+  if (isApiEnabled) {
+    const res = await http.post<ApiPost>(`/content/posts/${encodeURIComponent(id)}/cancel`, lockVersion !== undefined ? { lock_version: lockVersion } : {})
+    return toPost(res!.data)
+  }
+  await delay(300)
+  const post = mockLocked(id, lockVersion)
+  if (post.status !== "scheduled") throw new ApiError(409, "Seule une publication programmée peut être annulée.")
+  for (const v of post.variants) if (v.status === "scheduled" || v.status === "draft") v.status = "cancelled"
+  post.status = "cancelled"
+  touch(post)
+  return structuredClone(post)
+}
+
+/** Programme (brouillon, annulée) ou reprogramme (programmée) une publication. */
+export async function reschedule(id: string, scheduledAt: string, lockVersion?: number): Promise<Post> {
+  if (isApiEnabled) {
+    const res = await http.post<ApiPost>(`/content/posts/${encodeURIComponent(id)}/reschedule`, {
+      scheduled_at: scheduledAt,
+      ...(lockVersion !== undefined ? { lock_version: lockVersion } : {}),
+    })
+    return toPost(res!.data)
+  }
+  await delay(300)
+  const post = mockLocked(id, lockVersion)
+  if (!["draft", "scheduled", "cancelled"].includes(post.status)) throw new ApiError(409, "Cette publication ne peut pas être reprogrammée.")
+  if (post.variants.length === 0) throw new ApiError(422, "Choisissez au moins un réseau social avant de programmer.", { targets: ["Choisissez au moins un réseau social avant de programmer."] })
+  post.scheduledAt = scheduledAt
+  post.status = "scheduled"
+  for (const v of post.variants) {
+    v.status = "scheduled"
+    v.scheduledAt = scheduledAt
+    v.errorMessage = null
+  }
+  touch(post)
+  return structuredClone(post)
+}
+
+/** Relance des variantes en échec — démonstration uniquement (phase Publishing côté API). */
+export async function retryFailed(id: string): Promise<Post> {
+  if (isApiEnabled) throw new ApiError(409, "La relance sera disponible avec la publication réelle.")
+  await delay(300)
+  const post = store.posts.find((p) => p.id === id) ?? notFound("Publication")
+  for (const v of post.variants) {
+    if (v.status === "failed") {
+      v.status = "publishing"
+      v.errorMessage = null
+    }
+  }
+  post.status = "processing"
+  simulatePublication(post.id)
+  return structuredClone(post)
+}
+
+// --- Démonstration (sans backend) ---------------------------------------------------------------
 
 /** Statut agrégé du post à partir de ses variantes (docs/database.md §3.3). */
 export function aggregateStatus(variants: PostVariant[], fallback: PostStatus): PostStatus {
@@ -18,25 +311,49 @@ export function aggregateStatus(variants: PostVariant[], fallback: PostStatus): 
   return fallback
 }
 
-export async function listPosts(filters: PostFilters = {}): Promise<Post[]> {
+async function mockList(filters: PostFilters): Promise<PostPage> {
   await delay()
   const q = filters.search?.trim().toLowerCase()
-  return store.posts
-    .filter((p) => (filters.status && filters.status !== "all" ? p.status === filters.status : true))
+  const statuses = filters.status === undefined || filters.status === "all" ? null : Array.isArray(filters.status) ? filters.status : [filters.status]
+  const from = filters.from ? new Date(filters.from).getTime() : null
+  const to = filters.to ? new Date(filters.to).getTime() : null
+  const scoped = store.posts
     .filter((p) => (filters.platform && filters.platform !== "all" ? p.variants.some((v) => v.platform === filters.platform) : true))
     .filter((p) => (q ? `${p.title ?? ""} ${p.body}`.toLowerCase().includes(q) : true))
-    .sort((a, b) => {
-      const da = a.scheduledAt ?? a.updatedAt
-      const db = b.scheduledAt ?? b.updatedAt
-      return new Date(db).getTime() - new Date(da).getTime()
+    .filter((p) => {
+      if (from === null && to === null) return true
+      if (!p.scheduledAt) return false
+      const t = new Date(p.scheduledAt).getTime()
+      return (from === null || t >= from) && (to === null || t <= to)
     })
-    .map((p) => structuredClone(p))
+  const counts = emptyCounts()
+  for (const p of scoped) counts[p.status]++
+  const matching = scoped
+    .filter((p) => (statuses ? statuses.includes(p.status) : true))
+    .sort((a, b) => new Date(b.scheduledAt ?? b.updatedAt).getTime() - new Date(a.scheduledAt ?? a.updatedAt).getTime())
+  const perPage = filters.perPage ?? DEFAULT_PER_PAGE
+  const page = filters.page ?? 1
+  return {
+    items: matching.slice((page - 1) * perPage, page * perPage).map((p) => structuredClone(p)),
+    page,
+    perPage,
+    total: matching.length,
+    lastPage: Math.max(1, Math.ceil(matching.length / perPage)),
+    statusCounts: counts,
+  }
 }
 
-export async function getPost(id: string): Promise<Post> {
-  await delay(200)
-  const post = store.posts.find((p) => p.id === id)
-  return post ? structuredClone(post) : notFound("Publication")
+function mockLocked(id: string, lockVersion?: number): Post {
+  const post = store.posts.find((p) => p.id === id) ?? notFound("Publication")
+  if (lockVersion !== undefined && lockVersion !== post.lockVersion) {
+    throw new ApiError(409, "Cette publication a été modifiée entre-temps. Rechargez-la avant d'enregistrer.")
+  }
+  return post
+}
+
+function touch(post: Post) {
+  post.lockVersion++
+  post.updatedAt = new Date().toISOString()
 }
 
 function buildVariants(postId: string, input: PostDraftInput, status: VariantStatus): PostVariant[] {
@@ -56,32 +373,32 @@ function buildVariants(postId: string, input: PostDraftInput, status: VariantSta
   }))
 }
 
-type SaveMode = "draft" | "schedule" | "publish"
-
 const MODE_STATUS: Record<SaveMode, { post: PostStatus; variant: VariantStatus }> = {
   draft: { post: "draft", variant: "draft" },
   schedule: { post: "scheduled", variant: "scheduled" },
   publish: { post: "processing", variant: "publishing" },
 }
 
-export async function savePost(input: PostDraftInput, mode: SaveMode, id?: string): Promise<Post> {
+async function mockSave(input: PostDraftInput, mode: SaveMode, id?: string, lockVersion?: number): Promise<Post> {
   await delay(500)
   const now = new Date().toISOString()
   const status = MODE_STATUS[mode]
-  const existing = id ? store.posts.find((p) => p.id === id) : undefined
+  const existing = id ? mockLocked(id, lockVersion) : undefined
   const postId = existing?.id ?? uid("post")
+  const scheduledAt = mode === "publish" ? now : mode === "schedule" ? input.scheduledAt : null
   const post: Post = {
     id: postId,
     title: input.title,
     body: input.body,
     status: status.post,
-    scheduledAt: mode === "publish" ? now : input.scheduledAt,
+    scheduledAt,
     publishedAt: null,
     timezone: input.timezone,
     source: existing?.source ?? "manual",
     mediaIds: input.mediaIds,
-    variants: buildVariants(postId, { ...input, scheduledAt: mode === "publish" ? now : input.scheduledAt }, status.variant),
+    variants: buildVariants(postId, { ...input, scheduledAt }, status.variant),
     metrics: null,
+    lockVersion: existing ? existing.lockVersion + 1 : 0,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   }
@@ -93,8 +410,8 @@ export async function savePost(input: PostDraftInput, mode: SaveMode, id?: strin
 }
 
 /**
- * Simule le traitement asynchrone du worker « publishing » : chaque variante passe à
- * « published », sauf les comptes en erreur (expiré, permission manquante) qui échouent.
+ * Démonstration : simule le traitement du worker « publishing » (jamais en mode API).
+ * Chaque variante passe à « published », sauf les comptes non connectés qui échouent.
  */
 function simulatePublication(postId: string) {
   setTimeout(() => {
@@ -115,81 +432,4 @@ function simulatePublication(postId: string) {
     post.status = aggregateStatus(post.variants, post.status)
     post.publishedAt = post.variants.some((v) => v.status === "published") ? now : null
   }, 2500)
-}
-
-export async function deletePost(id: string): Promise<void> {
-  await delay(300)
-  const index = store.posts.findIndex((p) => p.id === id)
-  if (index === -1) notFound("Publication")
-  store.posts.splice(index, 1)
-}
-
-export async function duplicatePost(id: string): Promise<Post> {
-  await delay(300)
-  const source = store.posts.find((p) => p.id === id) ?? notFound("Publication")
-  const copyId = uid("post")
-  const now = new Date().toISOString()
-  const copy: Post = {
-    ...structuredClone(source),
-    id: copyId,
-    title: source.title ? `${source.title} (copie)` : "Copie",
-    status: "draft",
-    scheduledAt: null,
-    publishedAt: null,
-    metrics: null,
-    createdAt: now,
-    updatedAt: now,
-    variants: source.variants.map((v) => ({
-      ...v,
-      id: uid("var"),
-      postId: copyId,
-      status: "draft",
-      scheduledAt: null,
-      publishedAt: null,
-      externalUrl: null,
-      errorMessage: null,
-    })),
-  }
-  store.posts.unshift(copy)
-  return structuredClone(copy)
-}
-
-export async function cancelSchedule(id: string): Promise<Post> {
-  await delay(300)
-  const post = store.posts.find((p) => p.id === id) ?? notFound("Publication")
-  for (const v of post.variants) if (v.status === "scheduled" || v.status === "queued") v.status = "draft"
-  post.status = "draft"
-  post.scheduledAt = null
-  post.updatedAt = new Date().toISOString()
-  return structuredClone(post)
-}
-
-export async function reschedule(id: string, scheduledAt: string): Promise<Post> {
-  await delay(300)
-  const post = store.posts.find((p) => p.id === id) ?? notFound("Publication")
-  post.scheduledAt = scheduledAt
-  post.status = "scheduled"
-  for (const v of post.variants) {
-    if (v.status !== "published") {
-      v.status = "scheduled"
-      v.scheduledAt = scheduledAt
-      v.errorMessage = null
-    }
-  }
-  post.updatedAt = new Date().toISOString()
-  return structuredClone(post)
-}
-
-export async function retryFailed(id: string): Promise<Post> {
-  await delay(300)
-  const post = store.posts.find((p) => p.id === id) ?? notFound("Publication")
-  for (const v of post.variants) {
-    if (v.status === "failed") {
-      v.status = "publishing"
-      v.errorMessage = null
-    }
-  }
-  post.status = "processing"
-  simulatePublication(post.id)
-  return structuredClone(post)
 }

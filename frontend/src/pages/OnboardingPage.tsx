@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useConnectAccount, useSocialAccounts } from "@/hooks/queries/social"
+import { FeatureUnavailableError } from "@/lib/features"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
 import { TIMEZONES } from "@/lib/time"
@@ -63,7 +64,10 @@ export default function OnboardingPage() {
   const handleConnect = (accountId: string, name: string) => {
     connect.mutate(accountId, {
       onSuccess: () => toast.success(`${name} est connecté.`),
-      onError: () => toast.error(`La connexion à ${name} a échoué. Réessayez.`),
+      // Fonction indisponible : le message explicatif est déjà affiché par useConnectAccount.
+      onError: (error) => {
+        if (!(error instanceof FeatureUnavailableError)) toast.error(`La connexion à ${name} a échoué. Réessayez.`)
+      },
     })
   }
 

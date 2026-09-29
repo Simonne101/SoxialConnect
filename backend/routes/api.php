@@ -63,6 +63,11 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::apiResource('content/posts', PostController::class)
                 ->parameters(['posts' => 'post'])
                 ->names('content.posts');
+            Route::prefix('content/posts/{post}')->name('content.posts.')->controller(PostController::class)->group(function () {
+                Route::post('duplicate', 'duplicate')->name('duplicate');
+                Route::post('cancel', 'cancel')->name('cancel');
+                Route::post('reschedule', 'reschedule')->name('reschedule');
+            });
         });
     });
 });

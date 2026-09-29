@@ -1,12 +1,64 @@
-// Service Social Accounts — futur : /api/v1/social-accounts + flux OAuth serveur.
-// Aucun OAuth réel ici : la connexion est simulée. Aucun token n'existe côté frontend.
-import type { SocialAccount } from "@/types"
+// Service Social Accounts.
+// - Backend branché : lecture seule de /api/v1/social/accounts (comptes réels ou de démonstration).
+//   Connexion / déconnexion / synchronisation : phase Social Connectors (OAuth officiel) — refusées
+//   explicitement ici, sans aucune simulation.
+// - Sinon : démonstration en mémoire (connexion simulée). Aucun token n'existe côté frontend.
+import type { PlatformKey, SocialAccount, SocialAccountStatus, SocialAccountType } from "@/types"
+import { FeatureUnavailableError, SOCIAL_ACTION_UNAVAILABLE } from "@/lib/features"
+import { http, isApiEnabled } from "@/lib/http"
 import { PLATFORMS } from "@/lib/platforms"
 import { delay, notFound, store } from "./mockStore"
 
+/** Format de backend/app/Http/Resources/SocialAccountResource.php. */
+interface ApiSocialAccount {
+  id: string
+  platform: PlatformKey
+  status: "connected" | "expired" | "revoked" | "error"
+  account_type: SocialAccountType | null
+  display_name: string | null
+  username: string | null
+  status_reason: string | null
+  is_demo?: boolean
+  connected_at: string | null
+  last_synced_at: string | null
+}
+
+const STATUS: Record<ApiSocialAccount["status"], SocialAccountStatus> = {
+  connected: "connected",
+  expired: "expired",
+  revoked: "disconnected",
+  error: "error",
+}
+
+export function toSocialAccount(a: ApiSocialAccount): SocialAccount {
+  return {
+    id: a.id,
+    platform: a.platform,
+    status: STATUS[a.status] ?? "error",
+    accountType: a.account_type,
+    displayName: a.display_name,
+    username: a.username,
+    entities: [],
+    permissions: [],
+    followers: null,
+    connectedAt: a.connected_at,
+    lastSyncedAt: a.last_synced_at,
+    statusMessage: a.status_reason,
+    isDemo: a.is_demo ?? false,
+  }
+}
+
 export async function listSocialAccounts(): Promise<SocialAccount[]> {
+  if (isApiEnabled) {
+    const res = await http.get<ApiSocialAccount[]>("/social/accounts")
+    return res!.data.map(toSocialAccount)
+  }
   await delay()
   return structuredClone(store.socialAccounts)
+}
+
+function assertDemoMode(action: keyof typeof SOCIAL_ACTION_UNAVAILABLE) {
+  if (isApiEnabled) throw new FeatureUnavailableError(SOCIAL_ACTION_UNAVAILABLE[action])
 }
 
 function find(id: string): SocialAccount {
@@ -15,6 +67,7 @@ function find(id: string): SocialAccount {
 
 /** Simule : redirection OAuth → consentement → callback → comptes récupérés. */
 export async function connectAccount(id: string): Promise<SocialAccount> {
+  assertDemoMode("connect")
   await delay(1600)
   const account = find(id)
   const platform = PLATFORMS[account.platform]
@@ -32,6 +85,7 @@ export async function connectAccount(id: string): Promise<SocialAccount> {
 }
 
 export async function disconnectAccount(id: string): Promise<SocialAccount> {
+  assertDemoMode("disconnect")
   await delay(700)
   const account = find(id)
   account.status = "disconnected"
@@ -43,6 +97,7 @@ export async function disconnectAccount(id: string): Promise<SocialAccount> {
 }
 
 export async function syncAccount(id: string): Promise<SocialAccount> {
+  assertDemoMode("sync")
   await delay(1200)
   const account = find(id)
   account.lastSyncedAt = new Date().toISOString()

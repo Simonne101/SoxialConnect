@@ -1,5 +1,5 @@
 import { CalendarDays, FileText, FilePen, Plus, Search, SearchX } from "lucide-react"
-import { useDeferredValue, useMemo, useState } from "react"
+import { useDeferredValue, useState } from "react"
 import { Link, useSearchParams } from "react-router"
 import { PlatformIcon } from "@/components/brand/PlatformIcon"
 import { PostActionsMenu } from "@/components/content/PostActionsMenu"
@@ -9,6 +9,7 @@ import { PostDetailDialog } from "@/components/content/PostDetailDialog"
 import { usePostActions } from "@/components/content/usePostActions"
 import { MediaThumb } from "@/components/media/MediaThumb"
 import { FilterTabs } from "@/components/shared/FilterTabs"
+import { Pagination } from "@/components/shared/Pagination"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { EmptyState, ErrorState, ListSkeleton } from "@/components/shared/States"
 import { Button } from "@/components/ui/button"
@@ -19,6 +20,8 @@ import { useMediaMap } from "@/hooks/useMediaMap"
 import { formatCompact, formatDate } from "@/lib/format"
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
 import type { PlatformKey, Post, PostStatus } from "@/types"
+
+const PER_PAGE = 20
 
 const TABS: { value: string; label: string; statuses: PostStatus[] | null }[] = [
   { value: "all", label: "Toutes", statuses: null },
@@ -35,20 +38,32 @@ export default function PostsPage() {
   const [search, setSearch] = useState("")
   const deferredSearch = useDeferredValue(search)
   const [platform, setPlatform] = useState<PlatformKey | "all">("all")
+  const [page, setPage] = useState(1)
   const [detail, setDetail] = useState<Post | null>(null)
   const { actions, dialogs } = usePostActions()
   const mediaMap = useMediaMap()
 
-  const { data, isLoading, isError, refetch } = usePosts({ search: deferredSearch, platform })
-
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {}
-    for (const t of TABS) c[t.value] = (data ?? []).filter((p) => !t.statuses || t.statuses.includes(p.status)).length
-    return c
-  }, [data])
-
   const current = TABS.find((t) => t.value === tab)!
-  const posts = (data ?? []).filter((p) => !current.statuses || current.statuses.includes(p.status))
+  // Filtres, recherche et pagination côté serveur ; les compteurs d'onglets viennent de meta.status_counts.
+  const { data, isLoading, isFetching, isError, refetch } = usePosts({
+    search: deferredSearch,
+    platform,
+    status: current.statuses ?? "all",
+    page,
+    perPage: PER_PAGE,
+  })
+
+  // Page vidée (suppression de sa dernière publication) → dernière page existante.
+  // (ajustement pendant le rendu, sans effet : https://react.dev/learn/you-might-not-need-an-effect)
+  if (data && page > data.lastPage) setPage(data.lastPage)
+
+  const counts: Record<string, number> = {}
+  for (const t of TABS) {
+    const statuses = t.statuses ?? (Object.keys(data?.statusCounts ?? {}) as PostStatus[])
+    counts[t.value] = statuses.reduce((sum, s) => sum + (data?.statusCounts[s] ?? 0), 0)
+  }
+
+  const posts = data?.items ?? []
   const filtering = Boolean(deferredSearch) || platform !== "all"
 
   return (
@@ -77,7 +92,10 @@ export default function PostsPage() {
           <FilterTabs
             label="Filtrer par statut"
             value={tab}
-            onChange={(v) => setParams(v === "all" ? {} : { status: v }, { replace: true })}
+            onChange={(v) => {
+              setPage(1)
+              setParams(v === "all" ? {} : { status: v }, { replace: true })
+            }}
             items={TABS.map((t) => ({ value: t.value, label: t.label, badge: <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold text-ink-muted">{counts[t.value] ?? 0}</span> }))}
           />
         </div>
@@ -85,9 +103,15 @@ export default function PostsPage() {
         <div className="flex flex-col gap-3 p-5 sm:flex-row">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher une publication…" className="pl-10" aria-label="Rechercher une publication" />
+            <Input value={search} onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }} placeholder="Rechercher une publication…" className="pl-10" aria-label="Rechercher une publication" />
           </div>
-          <Select value={platform} onValueChange={(v) => setPlatform(v as PlatformKey | "all")}>
+          <Select value={platform} onValueChange={(v) => {
+            setPlatform(v as PlatformKey | "all")
+            setPage(1)
+          }}>
             <SelectTrigger className="w-full sm:w-52" aria-label="Filtrer par réseau">
               <SelectValue />
             </SelectTrigger>
@@ -109,7 +133,7 @@ export default function PostsPage() {
             <ErrorState onRetry={() => refetch()} />
           ) : posts.length === 0 ? (
             filtering ? (
-              <EmptyState icon={SearchX} title="Aucun résultat" description="Aucune publication ne correspond à votre recherche. Essayez un autre mot ou un autre réseau." action={<Button variant="outline" onClick={() => { setSearch(""); setPlatform("all") }}>Effacer les filtres</Button>} />
+              <EmptyState icon={SearchX} title="Aucun résultat" description="Aucune publication ne correspond à votre recherche. Essayez un autre mot ou un autre réseau." action={<Button variant="outline" onClick={() => { setSearch(""); setPlatform("all"); setPage(1) }}>Effacer les filtres</Button>} />
             ) : (
               <EmptyState icon={tab === "draft" ? FilePen : FileText} title="Aucune publication ici" description="Créez votre première publication : vous pourrez la publier tout de suite ou la programmer." action={<Button asChild><Link to="/content/create"><Plus /> Créer une publication</Link></Button>} />
             )
@@ -171,6 +195,8 @@ export default function PostsPage() {
                   </li>
                 ))}
               </ul>
+
+              {data && <Pagination page={data.page} lastPage={data.lastPage} total={data.total} onChange={setPage} busy={isFetching} label="Pages de publications" />}
             </>
           )}
         </div>

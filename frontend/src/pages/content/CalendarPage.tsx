@@ -23,7 +23,7 @@ import { PageHeader } from "@/components/shared/PageHeader"
 import { ErrorState, ListSkeleton } from "@/components/shared/States"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { usePosts } from "@/hooks/queries/content"
+import { useCalendarPosts } from "@/hooks/queries/content"
 import { useMediaMap } from "@/hooks/useMediaMap"
 import { useMediaQuery } from "@/hooks/useMediaQuery"
 import { useNow } from "@/hooks/useNow"
@@ -51,7 +51,11 @@ export default function CalendarPage() {
   const { actions, dialogs } = usePostActions()
   const mediaMap = useMediaMap()
 
-  const { data, isLoading, isError, refetch } = usePosts({ platform, status })
+  // Période chargée : la grille du mois affiché (semaines complètes), qui couvre aussi les vues
+  // semaine et jour et le jour sélectionné. Filtre from/to appliqué côté serveur.
+  const from = startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 }).toISOString()
+  const to = endOfWeek(endOfMonth(cursor), { weekStartsOn: 1 }).toISOString()
+  const { data, isLoading, isError, refetch } = useCalendarPosts({ platform, status, from, to })
   const posts = (data ?? []).filter((p) => p.scheduledAt)
 
   const move = (dir: 1 | -1) => {

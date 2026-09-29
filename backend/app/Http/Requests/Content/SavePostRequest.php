@@ -5,7 +5,11 @@ namespace App\Http\Requests\Content;
 use App\Domain\Content\Enums\PostFormat;
 use App\Domain\Media\Enums\MediaStatus;
 use App\Domain\Social\Enums\SocialAccountStatus;
+use App\Models\Post;
+use App\Support\Validation\Timezones;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
 /**
@@ -18,10 +22,15 @@ class SavePostRequest extends FormRequest
     /** Clés d'options autorisées par variante (docs/api-integration.md ; types frontend VariantOptions). */
     private const OPTION_KEYS = 'title,description,hashtags,destinationUrl,board,privacy,allowComments,allowDuet,allowStitch,commercialContent,youtubeVisibility,madeForKids,coverMediaId,thumbnailMediaId,firstComment,accountEntityId';
 
-    public function authorize(): bool
+    /**
+     * Autorisation AVANT validation : une mise à jour du post d'un autre compte répond 404,
+     * jamais 422 (sinon la réponse révélerait l'existence du post — IDOR).
+     */
+    public function authorize(): Response
     {
-        // La propriété du post (mise à jour) est vérifiée par la PostPolicy dans le contrôleur.
-        return $this->user() !== null;
+        $post = $this->route('post');
+
+        return $post instanceof Post ? Gate::inspect('update', $post) : Gate::inspect('create', Post::class);
     }
 
     public function rules(): array
@@ -34,7 +43,7 @@ class SavePostRequest extends FormRequest
             'mode' => ['required', Rule::in(['draft', 'schedule'])],
             'title' => ['nullable', 'string', 'max:255'],
             'body' => ['present', 'nullable', 'string', 'max:63206'],
-            'timezone' => ['sometimes', 'string', Rule::in(\DateTimeZone::listIdentifiers())],
+            'timezone' => ['sometimes', 'string', Rule::in(Timezones::identifiers())],
             'scheduled_at' => [Rule::requiredIf($schedule), 'nullable', 'date', $schedule ? 'after:now' : 'nullable'],
             'lock_version' => ['sometimes', 'integer', 'min:0'],
 

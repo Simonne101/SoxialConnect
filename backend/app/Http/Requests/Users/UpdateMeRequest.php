@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Users;
 
+use App\Support\Validation\Timezones;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -19,7 +20,7 @@ class UpdateMeRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'min:2', 'max:120'],
             'headline' => ['sometimes', 'nullable', 'string', 'max:60'],
             'bio' => ['sometimes', 'nullable', 'string', 'max:280'],
-            'timezone' => ['sometimes', 'required', 'string', Rule::in(\DateTimeZone::listIdentifiers())],
+            'timezone' => ['sometimes', 'required', 'string', Rule::in(Timezones::identifiers())],
             'locale' => ['sometimes', 'required', Rule::in(['fr'])],
         ];
     }

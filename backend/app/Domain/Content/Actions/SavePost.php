@@ -6,6 +6,7 @@ use App\Domain\Content\Enums\PostFormat;
 use App\Domain\Content\Enums\PostStatus;
 use App\Domain\Content\Enums\VariantStatus;
 use App\Domain\Content\Exceptions\PostConflict;
+use App\Domain\Content\Support\PostLock;
 use App\Domain\Publishing\PostStatusAggregator;
 use App\Models\Post;
 use App\Models\User;
@@ -50,12 +51,9 @@ final class SavePost
     {
         $post = DB::transaction(function () use ($post, $data) {
             // Verrou pessimiste + contrôle de version : pas d'écrasement silencieux entre deux onglets.
-            $locked = Post::query()->whereKey($post->getKey())->lockForUpdate()->firstOrFail();
+            $locked = PostLock::acquire($post, isset($data['lock_version']) ? (int) $data['lock_version'] : null);
             if (! $locked->isEditable()) {
                 throw PostConflict::notEditable();
-            }
-            if (isset($data['lock_version']) && (int) $data['lock_version'] !== $locked->lock_version) {
-                throw PostConflict::staleVersion();
             }
 
             $this->fill($locked, $data);

@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useConnectAccount } from "@/hooks/queries/social"
+import { FeatureUnavailableError } from "@/lib/features"
 import { PLATFORMS } from "@/lib/platforms"
 import type { SocialAccount } from "@/types"
 
@@ -81,7 +82,11 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
                   <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                   Connexion officielle : votre mot de passe {cfg.name} n'est jamais communiqué à SocialPulse. Vous pouvez retirer l'accès à tout moment.
                 </p>
-                {connect.isError && <p role="alert" className="text-sm font-medium text-danger-700">La connexion a échoué. Réessayez dans un instant.</p>}
+                {connect.isError && (
+                  <p role="alert" className="text-sm font-medium text-danger-700">
+                    {connect.error instanceof FeatureUnavailableError ? connect.error.message : "La connexion a échoué. Réessayez dans un instant."}
+                  </p>
+                )}
               </div>
             )}
 

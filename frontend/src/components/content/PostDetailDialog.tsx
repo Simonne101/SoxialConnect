@@ -11,15 +11,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { usePost } from "@/hooks/queries/content"
+import { features, PUBLISHING_UNAVAILABLE } from "@/lib/features"
 import { formatCompact, formatDate } from "@/lib/format"
 import { PLATFORMS } from "@/lib/platforms"
 import { POST_STATUS, VARIANT_STATUS } from "@/lib/status"
 import type { MediaAsset, Post } from "@/types"
-import { canEdit, postTitle } from "./postUtils"
+import { canEdit, canReschedule, postTitle } from "./postUtils"
 import type { PostActions } from "./usePostActions"
 
 export function PostDetailDialog({
-  post,
+  post: listed,
   onOpenChange,
   actions,
   mediaMap,
@@ -30,8 +32,12 @@ export function PostDetailDialog({
   mediaMap: Record<string, MediaAsset>
 }) {
   const close = () => onOpenChange(false)
+  // Détail à jour (GET /content/posts/{id}) ; la version de la liste s'affiche en attendant.
+  const detail = usePost(listed?.id)
+  const post = listed ? (detail.data?.id === listed.id ? detail.data : listed) : null
+  const gone = detail.isError
   return (
-    <Dialog open={Boolean(post)} onOpenChange={onOpenChange}>
+    <Dialog open={Boolean(listed)} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-[640px]">
         {post && (
           <>
@@ -48,6 +54,12 @@ export function PostDetailDialog({
                   : `Brouillon modifié le ${formatDate(post.updatedAt, "d MMMM yyyy")}`}
               </DialogDescription>
             </DialogHeader>
+
+            {gone && (
+              <p role="alert" className="flex items-start gap-2 rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-700">
+                <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" /> Cette publication est introuvable : elle a peut-être été supprimée.
+              </p>
+            )}
 
             <p className="rounded-xl bg-page p-4 text-sm leading-relaxed whitespace-pre-line text-ink-soft">{post.body}</p>
 
@@ -111,21 +123,21 @@ export function PostDetailDialog({
                   <Copy /> Dupliquer
                 </Button>
                 {post.status === "scheduled" && (
-                  <>
-                    <Button variant="outline" onClick={() => { close(); actions.cancel(post) }}>
-                      <CalendarX2 /> Annuler
-                    </Button>
-                    <Button variant="outline" onClick={() => { close(); actions.askReschedule(post) }}>
-                      <CalendarClock /> Reprogrammer
-                    </Button>
-                  </>
+                  <Button variant="outline" disabled={gone} onClick={() => { close(); actions.cancel(post) }}>
+                    <CalendarX2 /> Annuler
+                  </Button>
+                )}
+                {canReschedule(post) && (
+                  <Button variant="outline" disabled={gone} onClick={() => { close(); actions.askReschedule(post) }}>
+                    <CalendarClock /> {post.status === "scheduled" ? "Reprogrammer" : "Programmer"}
+                  </Button>
                 )}
                 {(post.status === "failed" || post.status === "partially_published") && (
-                  <Button variant="outline" onClick={() => { close(); actions.retry(post) }}>
+                  <Button variant="outline" disabled={!features.publishing} title={features.publishing ? undefined : PUBLISHING_UNAVAILABLE} onClick={() => { close(); actions.retry(post) }}>
                     <RotateCw /> Réessayer
                   </Button>
                 )}
-                {canEdit(post) && (
+                {canEdit(post) && !gone && (
                   <Button onClick={() => { close(); actions.edit(post) }}>
                     <Pencil /> Modifier
                   </Button>

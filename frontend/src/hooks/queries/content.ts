@@ -1,15 +1,26 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { PostDraftInput, PostFilters } from "@/types"
 import * as posts from "@/services/posts"
 import { qk } from "./keys"
 
+/** Liste paginée ; la page précédente reste affichée pendant le chargement de la suivante. */
 export function usePosts(filters: PostFilters = {}) {
   return useQuery({
     queryKey: qk.posts.list(filters),
     queryFn: () => posts.listPosts(filters),
+    placeholderData: keepPreviousData,
     // Rafraîchit tant qu'une publication est en cours (statut asynchrone du worker).
     refetchInterval: (query) =>
-      query.state.data?.some((p) => p.status === "processing") ? 1500 : false,
+      query.state.data?.items.some((p) => p.status === "processing") ? 1500 : false,
+  })
+}
+
+/** Publications programmées sur une période (calendrier), toutes pages confondues. */
+export function useCalendarPosts(filters: Omit<PostFilters, "page" | "perPage"> & { from: string; to: string }) {
+  return useQuery({
+    queryKey: qk.posts.range(filters),
+    queryFn: () => posts.listPostsInRange(filters),
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -18,6 +29,8 @@ export function usePost(id: string | undefined) {
     queryKey: qk.posts.detail(id ?? ""),
     queryFn: () => posts.getPost(id as string),
     enabled: Boolean(id),
+    // Une publication introuvable (404) ne se réessaie pas.
+    retry: false,
   })
 }
 
@@ -32,8 +45,8 @@ function useInvalidatePosts() {
 export function useSavePost() {
   const invalidate = useInvalidatePosts()
   return useMutation({
-    mutationFn: (v: { input: PostDraftInput; mode: "draft" | "schedule" | "publish"; id?: string }) =>
-      posts.savePost(v.input, v.mode, v.id),
+    mutationFn: (v: { input: PostDraftInput; mode: posts.SaveMode; id?: string; lockVersion?: number }) =>
+      posts.savePost(v.input, v.mode, v.id, v.lockVersion),
     onSuccess: invalidate,
   })
 }
@@ -50,14 +63,18 @@ export function useDuplicatePost() {
 
 export function useCancelSchedule() {
   const invalidate = useInvalidatePosts()
-  return useMutation({ mutationFn: posts.cancelSchedule, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: (v: { id: string; lockVersion?: number }) => posts.cancelSchedule(v.id, v.lockVersion),
+    // Succès ou conflit (409) : la liste est rechargée pour refléter l'état réel.
+    onSettled: invalidate,
+  })
 }
 
 export function useReschedule() {
   const invalidate = useInvalidatePosts()
   return useMutation({
-    mutationFn: (v: { id: string; scheduledAt: string }) => posts.reschedule(v.id, v.scheduledAt),
-    onSuccess: invalidate,
+    mutationFn: (v: { id: string; scheduledAt: string; lockVersion?: number }) => posts.reschedule(v.id, v.scheduledAt, v.lockVersion),
+    onSettled: invalidate,
   })
 }
 

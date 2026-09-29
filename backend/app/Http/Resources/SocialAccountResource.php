@@ -18,6 +18,8 @@ class SocialAccountResource extends JsonResource
             'display_name' => $this->display_name,
             'username' => $this->username,
             'status_reason' => $this->status_reason,
+            // Compte fictif créé par DemoSocialAccountsSeeder (développement local uniquement).
+            'is_demo' => $this->isDemo(),
             'connected_at' => $this->connected_at?->toIso8601String(),
             'last_synced_at' => $this->last_synced_at?->toIso8601String(),
         ];

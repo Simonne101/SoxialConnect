@@ -136,6 +136,7 @@ export const mockPosts: Post[] = SEEDS.map((s, index) => {
             clicks: Math.round(impressions * (0.01 + rand() * 0.02)),
           }
         : null,
+    lockVersion: 0,
     createdAt: at(s.day - 2, 10),
     updatedAt: at(Math.min(s.day, 0) - 1, 18),
   }
