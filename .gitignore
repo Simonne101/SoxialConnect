@@ -1,0 +1,55 @@
+# Secrets et environnements — ne jamais committer
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+auth.json
+
+# Dépendances
+/backend/vendor/
+node_modules/
+
+# Builds
+/frontend/dist/
+/backend/public/build/
+/backend/public/hot
+/backend/public/storage
+
+# Stockage et fichiers générés Laravel
+/backend/storage/*.key
+/backend/storage/app/private/
+/backend/storage/logs/
+/backend/bootstrap/cache/*.php
+/backend/.phpunit.result.cache
+/backend/.phpunit.cache
+
+# Médias et temporaires
+*.tmp
+/tmp/
+
+# Outils / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+npm-debug.log*
+
+# Logs
+*.log
+logs/
+
+# Uploads utilisateurs (jamais versionnés)
+/backend/storage/app/public/*
+!/backend/storage/app/public/.gitignore
+uploads/
+
+# Credentials, tokens et secrets
+credentials*.json
+*credentials*.json
+*.secret
+secrets/
+*.token
+service-account*.json

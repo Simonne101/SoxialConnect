@@ -1,0 +1,266 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource/caveat/500.css";
+
+@custom-variant dark (&:is(.dark *));
+/* Écrans peu hauts (portables, navigateur avec barres, zoom 125 %) : compactage vertical des écrans d'authentification. */
+@custom-variant short (@media (max-height: 800px));
+@custom-variant tiny (@media (max-height: 700px));
+
+/* =============================================================================
+   SocialPulse — Design System
+   Source : Images/maquette.png (planche « Design System » + pixels échantillonnés).
+   Toutes les couleurs de l'application passent par ces tokens :
+   aucun composant ne doit écrire de valeur hexadécimale en dur.
+   ============================================================================= */
+
+@theme {
+  /* Typographie — Inter (maquette), Caveat pour l'accroche manuscrite */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-script: "Caveat", "Segoe Script", cursive;
+
+  /* Primaire — indigo (#6366F1 étiqueté dans la maquette) */
+  --color-brand-50: #eef0ff;
+  --color-brand-100: #e0e4ff;
+  --color-brand-200: #c7cdfe;
+  --color-brand-300: #a5acfc;
+  --color-brand-400: #8187f8;
+  /* #6366F1 (maquette) assombri en #5B5EED pour un contraste AA (texte blanc 5,0:1). */
+  --color-brand-500: #5b5eed;
+  --color-brand-600: #5048e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+
+  /* Secondaire — violet (#8B5CF6) */
+  --color-violet-50: #f5f3ff;
+  --color-violet-100: #ede9fe;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+
+  /* Sémantiques (maquette : Succès / Avertissement / Erreur / Neutre) */
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-500: #10b981;
+  --color-success-700: #047857;
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-500: #f59e0b;
+  --color-warning-700: #b45309;
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+  --color-danger-700: #b91c1c;
+  --color-info-50: #eff6ff;
+  --color-info-500: #3b82f6;
+  --color-info-700: #1d4ed8;
+  --color-neutral-500: #64748b;
+
+  /* Encre — titres et chiffres bleu nuit (échantillonné ≈ #13237F / #0B1437) */
+  --color-ink: #0b1437;
+  --color-ink-soft: #1e2a5a;
+  --color-ink-muted: #5b6482;
+
+  /* Barre latérale — bleu nuit (échantillonné ≈ #06102A) */
+  --color-navy-950: #050d24;
+  --color-navy-900: #07112d;
+  --color-navy-800: #0f1b3d;
+  --color-navy-700: #1a2750;
+  --color-navy-300: #9aa3c7;
+  --color-navy-200: #c3c9e4;
+
+  /* Surfaces */
+  --color-page: #f6f7fd;      /* fond d'application, blanc lavande */
+  --color-landing: #f7f9fe;   /* fond de la landing (échantillonné) */
+  --color-lavender: #ece9fe;  /* formes décoratives du hero */
+
+  /* Couleurs de marque des plateformes (logos officiels) */
+  --color-facebook: #1877f2;
+  --color-instagram: #e1306c;
+  --color-tiktok: #010101;
+  --color-youtube: #ff0000;
+  --color-linkedin: #0a66c2;
+  --color-x: #000000;
+  --color-pinterest: #e60023;
+  --color-threads: #000000;
+  --color-google: #4285f4;
+
+  /* Ombres — très légères, comme la maquette */
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px -6px rgb(30 41 99 / 0.08);
+  --shadow-float: 0 12px 32px -12px rgb(49 46 129 / 0.22);
+  --shadow-brand: 0 8px 20px -8px rgb(91 94 237 / 0.55);
+
+  /* Animations */
+  --animate-float: float 6s ease-in-out infinite;
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+}
+
+/* Correspondance shadcn/ui → tokens du projet */
+@theme inline {
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.25);
+  --radius-2xl: calc(var(--radius) * 1.5);
+  --radius-3xl: calc(var(--radius) * 2);
+  --radius-4xl: calc(var(--radius) * 2.5);
+}
+
+:root {
+  --radius: 0.625rem; /* 10px — boutons et champs ; cartes = rounded-2xl (15px) */
+
+  --background: var(--color-page);
+  --foreground: var(--color-ink);
+  --card: #ffffff;
+  --card-foreground: var(--color-ink);
+  --popover: #ffffff;
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-brand-500);
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-brand-50);
+  --secondary-foreground: var(--color-brand-600);
+  --muted: #f1f3f9;
+  --muted-foreground: #5f6b85;
+  --accent: var(--color-brand-50);
+  --accent-foreground: var(--color-brand-700);
+  --destructive: var(--color-danger-500);
+  --border: #e5e8f2;
+  --input: #dde1ee;
+  --ring: var(--color-brand-500);
+
+  --chart-1: var(--color-brand-500);
+  --chart-2: var(--color-violet-500);
+  --chart-3: var(--color-success-500);
+  --chart-4: var(--color-warning-500);
+  --chart-5: var(--color-danger-500);
+
+  --sidebar: var(--color-navy-900);
+  --sidebar-foreground: var(--color-navy-200);
+  --sidebar-primary: var(--color-brand-500);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--color-navy-800);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: var(--color-navy-800);
+  --sidebar-ring: var(--color-brand-400);
+
+  /* Hauteur de la navbar fixe de la landing (utilisée pour le décalage du contenu) */
+  --landing-nav-h: 4.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans antialiased;
+    scroll-padding-top: calc(var(--landing-nav-h) + 1rem);
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  h1, h2, h3, h4 {
+    @apply font-heading text-ink tracking-tight;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Carte standard de l'application */
+  .surface-card {
+    @apply rounded-2xl border border-border bg-card shadow-card;
+  }
+  /* Dégradé officiel Instagram (pastilles de plateforme) */
+  .bg-instagram-gradient {
+    background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285aeb 90%);
+  }
+  /* Dégradé des accents IA / marque */
+  .bg-brand-gradient {
+    background: linear-gradient(135deg, var(--color-brand-500) 0%, var(--color-violet-500) 100%);
+  }
+  .text-brand-gradient {
+    background: linear-gradient(135deg, var(--color-brand-500) 0%, var(--color-violet-500) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  /* Vignettes fictives de la médiathèque (dégradés centralisés) */
+  .thumb-1 { background: linear-gradient(135deg, #4f7a4a 0%, #a3c47b 55%, #f2d99b 100%); }
+  .thumb-2 { background: linear-gradient(160deg, #2c5364 0%, #4f8a8b 50%, #f4d58d 100%); }
+  .thumb-3 { background: linear-gradient(140deg, #5b3e8a 0%, #a77bca 50%, #f6c28b 100%); }
+  .thumb-4 { background: linear-gradient(135deg, #3b2c6b 0%, #7c5cbf 55%, #c7b3f5 100%); }
+  .thumb-5 { background: linear-gradient(170deg, #0f3057 0%, #00587a 45%, #f7b267 100%); }
+  .thumb-6 { background: linear-gradient(135deg, #111827 0%, #312e81 60%, #6366f1 100%); }
+  .thumb-7 { background: linear-gradient(150deg, #f7971e 0%, #ffd200 100%); }
+  .thumb-8 { background: linear-gradient(135deg, #0b486b 0%, #3b8686 50%, #cff09e 100%); }
+  .thumb-9 { background: linear-gradient(135deg, #8e2de2 0%, #f27121 100%); }
+  .thumb-10 { background: linear-gradient(135deg, #1d4350 0%, #a43931 100%); }
+  .thumb-11 { background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); }
+  .thumb-12 { background: linear-gradient(135deg, #5c258d 0%, #4389a2 100%); }
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-navy-700) transparent;
+}
+
+/* Fondu des bords du visuel du hero dans le fond de la page (l'image n'est pas modifiée). */
+.hero-mask {
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 9%, #000 91%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, #000 9%, #000 88%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent 0%, #000 9%, #000 91%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, #000 9%, #000 88%, transparent 100%);
+  mask-composite: intersect;
+}
