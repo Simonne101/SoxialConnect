@@ -151,3 +151,32 @@ Format : Decision / Context / Reason / Consequences / Status / Date.
 - **Compactage selon la hauteur** : variantes Tailwind `short` (≤ 800 px) et `tiny` (≤ 700 px) qui resserrent espacements, champs (44 → 40 px), boutons et titre ; inscription sur deux colonnes dès 640 px de large. Aucun défilement, ni global ni interne, vérifié sur 12 tailles d'écran (de 360×640 à 1920×940, dont 1366×625 et 1536×730), avec et sans messages d'erreur.
 - **Consequences** : en dessous d'environ 600 px de hauteur utile (zoom très fort, clavier mobile ouvert), seul le panneau du formulaire défile ; aucun contenu n'est masqué.
 - **Status** : Accepted — 2026-09-29
+
+---
+
+## Phase 2 — Socle backend (2026-09-29)
+
+### ADR-028 — Champs de profil « headline » et « bio » sur users
+- **Decision** : ajout de `users.headline` (varchar 60, « Activité ») et `users.bio` (varchar 280, « Présentation »), nullables.
+- **Reason** : ces champs figurent dans le frontend validé (Paramètres › Profil, barre latérale) mais pas dans le schéma initial.
+- **Status** : Accepted — 2026-09-29
+
+### ADR-029 — Fortify en mode API seule, routes sous /api/v1/auth
+- **Decision** : `Fortify::ignoreRoutes()` ; les contrôleurs Fortify sont exposés sous `/api/v1/auth/*` avec nos limites (`login`, `auth-sensitive`). Réponses JSON au format de l'API. Seul le lien de vérification d'e-mail est une route web (`/email/verify/{id}/{hash}`), car il est ouvert depuis l'e-mail.
+- **Details** : réponse « mot de passe oublié » identique que le compte existe ou non ; connexion refusée pour un compte suspendu avec le message générique ; double authentification désactivée (colonnes prêtes, phase 11) ; passkeys non installées.
+- **Status** : Accepted — 2026-09-29
+
+### ADR-030 — Tests sur une base MySQL dédiée
+- **Decision** : `phpunit.xml` utilise la base `sociopulse_test` (MySQL), pas SQLite.
+- **Reason** : les contraintes propres à MySQL (CHECK, colonnes générées, index multi-valués, FULLTEXT) doivent être réellement testées. Argon2id reste utilisé avec un coût réduit en test.
+- **Status** : Accepted — 2026-09-29
+
+### ADR-031 — Rôles et permissions en V1
+- **Decision** : autorisation par propriété (Policies + scope `ownedBy`, refus en 404) et une Gate `admin` basée sur `ADMIN_EMAILS`. Pas de table de rôles en V1.
+- **Reason** : V1 mono-utilisateur non-SaaS (ADR-007) ; les rôles et permissions arriveront avec les workspaces.
+- **Status** : Accepted — 2026-09-29
+
+### ADR-032 — Développement local : `php artisan serve` et OPcache
+- **Context** : sous Windows, le serveur intégré de PHP traite une requête à la fois ; sans OPcache (non chargé dans `C:\Program Files\php\php.ini`), chaque requête prend 0,6 à 4 s.
+- **Recommendation** : activer OPcache dans le php.ini local (`zend_extension=opcache`, `opcache.enable_cli=1`) ou servir l'API via l'Nginx/Apache de Laragon (PHP-CGI) sur `localhost:8000`. Aucun impact sur la production (PHP-FPM + OPcache).
+- **Status** : Open (décision du porteur de projet : modification de la configuration PHP locale) — 2026-09-29

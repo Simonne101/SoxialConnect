@@ -32,7 +32,7 @@ MySQL **n'a pas** d'index uniques partiels ni de `NULLS NOT DISTINCT` : on les �
 | Besoin | Émulation MySQL |
 |---|---|
 | Unicité partielle (ex. un seul token `active` par compte) | Colonne générée `active_marker TINYINT AS (IF(status = 'active', 1, NULL)) STORED` + `UNIQUE(social_account_id, token_kind, active_marker)` : les `NULL` ne se heurtent pas, seules les lignes actives sont contraintes. |
-| Unicité avec colonne nullable traitée comme valeur (`NULLS NOT DISTINCT`) | Colonne générée `<col>_key CHAR(36) AS (COALESCE(<col>, '')) VIRTUAL`, indexée, utilisée dans l'index unique à la place de la colonne nullable. **`VIRTUAL` et non `STORED`** : MySQL interdit `ON DELETE CASCADE / SET NULL` sur la colonne de base d'une colonne générée `STORED`, or ces colonnes sont des clés étrangères (`TO_VERIFY` par un test de migration sur 8.0.30 et 8.4). Si le test échoue : trigger ou contrôle applicatif sous verrou. |
+| Unicité avec colonne nullable traitée comme valeur (`NULLS NOT DISTINCT`) | Colonne générée `<col>_key CHAR(36) AS (COALESCE(<col>, '')) VIRTUAL`, indexée, utilisée dans l'index unique à la place de la colonne nullable. **`VIRTUAL` et non `STORED`** : MySQL interdit `ON DELETE CASCADE / SET NULL` sur la colonne de base d'une colonne générée `STORED`, or ces colonnes sont des clés étrangères (**vérifié le 2026-09-29 sur MySQL 8.0.30** : cascade à travers une colonne VIRTUAL indexée ; à revérifier sur 8.4 en CI). Si le test échoue : trigger ou contrôle applicatif sous verrou. |
 | Index sur tableau JSON (tags) | Index multi-valué : `INDEX ((CAST(tags AS CHAR(64) ARRAY)))`, requête via `MEMBER OF` / `JSON_CONTAINS`. |
 | Recherche textuelle (nom de média) | Index `FULLTEXT(original_name)` + `MATCH … AGAINST` en mode booléen ; `LIKE 'prefix%'` pour l'autocomplétion. |
 | Email insensible à la casse | Collation `_ci` de la colonne (comparaison déjà insensible à la casse) + normalisation `lower()` à l'écriture. |
@@ -72,6 +72,8 @@ V1 : l'authentification se fait par session SPA). Elles suivent les migrations s
 | locale | varchar(10) | not null, défaut `fr` |
 | status | varchar(32) | `active` \| `suspended` (CHECK) |
 | last_login_at | datetime | null |
+| headline | varchar(60) | null — « Activité » affichée dans l'interface (ADR-028) |
+| bio | varchar(280) | null — « Présentation » (ADR-028) |
 | remember_token | varchar(100) | null |
 | created_at, updated_at, deleted_at | timestamp | |
 
@@ -335,7 +337,7 @@ Index : (`user_id`, `created_at`), (`user_id`, `task`). Les clés étrangères s
 | language | varchar(10) | null (détectée ou choisie) |
 | error | varchar(1000) | null |
 | created_at, updated_at, deleted_at | timestamp | |
-CHECK : `source_media_id IS NOT NULL OR source_url IS NOT NULL`.
+« `source_media_id` ou `source_url` obligatoire » : contrôlé côté application (MySQL interdit un CHECK sur une colonne portant une action référentielle).
 
 #### `video_transcripts`
 | Colonne | Type | Notes |

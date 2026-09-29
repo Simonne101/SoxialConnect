@@ -1,0 +1,104 @@
+// Client HTTP de l'API Laravel (/api/v1) — authentification par session Sanctum (SPA).
+// - cookies envoyés (credentials: "include") ; aucun token stocké dans le navigateur ;
+// - protection CSRF : cookie XSRF-TOKEN obtenu via /sanctum/csrf-cookie, renvoyé dans X-XSRF-TOKEN ;
+// - erreurs normalisées { message, errors } converties en ApiError.
+
+const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "")
+
+/** Vrai si le frontend est branché sur le backend (sinon : données de démonstration). */
+export const isApiEnabled = API_URL !== ""
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly errors: Record<string, string[]>
+
+  constructor(status: number, message: string, errors: Record<string, string[]> = {}) {
+    super(message)
+    this.status = status
+    this.errors = errors
+  }
+
+  /** Premier message d'erreur d'un champ (validation 422). */
+  field(name: string): string | undefined {
+    return this.errors[name]?.[0]
+  }
+}
+
+export interface ApiEnvelope<T> {
+  data: T
+  message: string | null
+  meta: Record<string, unknown>
+}
+
+function readCookie(name: string): string | null {
+  const match = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`))
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null
+}
+
+let csrfReady: Promise<void> | null = null
+
+/** Initialise le cookie CSRF (une fois, puis à nouveau après une erreur 419). */
+export function ensureCsrfCookie(force = false): Promise<void> {
+  if (!force && csrfReady) return csrfReady
+  csrfReady = fetch(`${API_URL}/sanctum/csrf-cookie`, { credentials: "include", headers: { Accept: "application/json" } }).then((r) => {
+    if (!r.ok) throw new ApiError(r.status, "Impossible de joindre le serveur.")
+  })
+  csrfReady.catch(() => {
+    csrfReady = null
+  })
+  return csrfReady
+}
+
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+
+async function request<T>(method: Method, path: string, body?: unknown, retried = false): Promise<ApiEnvelope<T> | null> {
+  const mutating = method !== "GET"
+  if (mutating) await ensureCsrfCookie()
+
+  const headers: Record<string, string> = { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" }
+  if (body !== undefined) headers["Content-Type"] = "application/json"
+  const xsrf = readCookie("XSRF-TOKEN")
+  if (mutating && xsrf) headers["X-XSRF-TOKEN"] = xsrf
+
+  let response: Response
+  try {
+    response = await fetch(`${API_URL}/api/v1${path}`, {
+      method,
+      headers,
+      credentials: "include",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+  } catch {
+    throw new ApiError(0, "Impossible de joindre le serveur. Vérifiez votre connexion.")
+  }
+
+  // Jeton CSRF expiré : on le renouvelle une fois puis on rejoue la requête.
+  if (response.status === 419 && !retried) {
+    await ensureCsrfCookie(true)
+    return request<T>(method, path, body, true)
+  }
+
+  if (response.status === 204) return null
+
+  let json: unknown = null
+  try {
+    json = await response.json()
+  } catch {
+    json = null
+  }
+
+  if (!response.ok) {
+    const payload = (json ?? {}) as { message?: string; errors?: Record<string, string[]> }
+    throw new ApiError(response.status, payload.message ?? "Une erreur est survenue.", payload.errors ?? {})
+  }
+
+  return json as ApiEnvelope<T>
+}
+
+export const http = {
+  get: <T>(path: string) => request<T>("GET", path),
+  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
+  put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
+  patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
+  delete: <T>(path: string) => request<T>("DELETE", path),
+}

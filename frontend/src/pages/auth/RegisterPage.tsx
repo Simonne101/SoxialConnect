@@ -8,6 +8,8 @@ import { AuthCard } from "@/components/shared/AuthCard"
 import { Field, PasswordInput } from "@/components/shared/FormField"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useRegister } from "@/hooks/queries/auth"
+import { ApiError } from "@/lib/http"
 
 // Politique de mot de passe : ≥ 12 caractères (docs/security.md §3). Vérification HIBP côté serveur.
 const schema = z
@@ -22,16 +24,31 @@ type Values = z.infer<typeof schema>
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const signUp = useRegister()
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { name: "", email: "", password: "", confirm: "" } })
 
-  const onSubmit = async () => {
-    await new Promise((r) => setTimeout(r, 800))
-    toast.success("Compte créé ! Un e-mail de vérification vous a été envoyé.")
-    navigate("/onboarding")
+  const onSubmit = async (values: Values) => {
+    try {
+      await signUp.mutateAsync({ name: values.name, email: values.email, password: values.password, passwordConfirmation: values.confirm })
+      toast.success("Compte créé ! Un e-mail de vérification vous a été envoyé.")
+      navigate("/onboarding", { replace: true })
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422) {
+        // Erreurs du serveur rattachées aux champs du formulaire.
+        for (const [field, target] of [["name", "name"], ["email", "email"], ["password", "password"]] as const) {
+          const message = e.field(field)
+          if (message) setError(target, { message })
+        }
+        if (!Object.keys(e.errors).length) setError("root", { message: e.message })
+      } else {
+        setError("root", { message: e instanceof ApiError ? e.message : "L'inscription a échoué. Réessayez." })
+      }
+    }
   }
 
   return (
@@ -74,6 +91,11 @@ export default function RegisterPage() {
             )}
           </Field>
         </div>
+        {errors.root && (
+          <p role="alert" className="rounded-lg bg-danger-50 px-3 py-2 text-sm font-medium text-danger-700">
+            {errors.root.message}
+          </p>
+        )}
         <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
           {isSubmitting && <LoaderCircle className="animate-spin" />}
           {isSubmitting ? "Création du compte…" : "Créer mon compte"}

@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { LoaderCircle } from "lucide-react"
 import { useForm } from "react-hook-form"
-import { Link, useNavigate } from "react-router"
+import { Link, useLocation, useNavigate } from "react-router"
 import { toast } from "sonner"
 import { z } from "zod"
 import { BrandGlyph } from "@/components/brand/PlatformIcon"
@@ -12,6 +12,8 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useLogin } from "@/hooks/queries/auth"
+import { ApiError } from "@/lib/http"
 
 const schema = z.object({
   email: z.email("Saisissez une adresse e-mail valide."),
@@ -22,19 +24,32 @@ type Values = z.infer<typeof schema>
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const login = useLogin()
   const {
     register,
     handleSubmit,
     setValue,
+    setError,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { email: "", password: "", remember: true } })
 
-  // Phase frontend : aucune authentification réelle (Sanctum + Fortify en phase backend).
-  const onSubmit = async () => {
-    await new Promise((r) => setTimeout(r, 700))
-    toast.success("Bon retour parmi nous !")
-    navigate("/dashboard")
+  // Connexion réelle (Laravel Fortify + session Sanctum) si le backend est branché, sinon démonstration.
+  const onSubmit = async (values: Values) => {
+    try {
+      await login.mutateAsync(values)
+      toast.success("Bon retour parmi nous !")
+      const from = (location.state as { from?: string } | null)?.from
+      navigate(from && from.startsWith("/") ? from : "/dashboard", { replace: true })
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422) {
+        setError("email", { message: e.field("email") ?? e.message })
+        if (e.field("password")) setError("password", { message: e.field("password") })
+      } else {
+        setError("root", { message: e instanceof ApiError ? e.message : "La connexion a échoué. Réessayez." })
+      }
+    }
   }
 
   return (
@@ -72,6 +87,11 @@ export default function LoginPage() {
             Mot de passe oublié ?
           </Link>
         </div>
+        {errors.root && (
+          <p role="alert" className="rounded-lg bg-danger-50 px-3 py-2 text-sm font-medium text-danger-700">
+            {errors.root.message}
+          </p>
+        )}
         <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
           {isSubmitting && <LoaderCircle className="animate-spin" />}
           {isSubmitting ? "Connexion…" : "Se connecter"}

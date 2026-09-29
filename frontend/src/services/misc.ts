@@ -12,6 +12,7 @@ import type {
 } from "@/types"
 import { buildAnalytics } from "@/mocks/analytics"
 import { mockActivity, mockSecurityEvents } from "@/mocks/user"
+import { currentUser, updateCurrentUser } from "./auth"
 import { delay, store } from "./mockStore"
 
 // --- Analytics ------------------------------------------------------------------------------
@@ -88,15 +89,13 @@ export async function deleteNotification(id: string): Promise<void> {
 }
 
 // --- Utilisateur / paramètres ----------------------------------------------------------------
-export async function getMe(): Promise<UserProfile> {
-  await delay(150)
-  return structuredClone(store.user)
+// Utilisateur courant : branché sur l'API Laravel (GET/PATCH /api/v1/users/me) via services/auth.
+export function getMe(): Promise<UserProfile> {
+  return currentUser()
 }
 
-export async function updateMe(patch: Partial<UserProfile>): Promise<UserProfile> {
-  await delay(500)
-  Object.assign(store.user, patch)
-  return structuredClone(store.user)
+export function updateMe(patch: Partial<UserProfile>): Promise<UserProfile> {
+  return updateCurrentUser(patch)
 }
 
 export async function listSessions(): Promise<UserSession[]> {

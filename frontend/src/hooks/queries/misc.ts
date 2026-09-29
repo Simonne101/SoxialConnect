@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { AnalyticsPeriod, NotificationPreferences, UserProfile } from "@/types"
+import { ApiError } from "@/lib/http"
 import * as svc from "@/services/misc"
 import { qk } from "./keys"
 
@@ -28,7 +29,14 @@ export function useDeleteNotification() {
   })
 }
 
-export const useMe = () => useQuery({ queryKey: qk.me, queryFn: svc.getMe, staleTime: Infinity })
+export const useMe = () =>
+  useQuery({
+    queryKey: qk.me,
+    queryFn: svc.getMe,
+    staleTime: 5 * 60_000,
+    // Une absence de session (401) n'est pas une erreur passagère : pas de nouvelle tentative.
+    retry: (count, error) => !(error instanceof ApiError && error.status === 401) && count < 1,
+  })
 
 export function useUpdateMe() {
   const qc = useQueryClient()

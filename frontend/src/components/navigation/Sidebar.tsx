@@ -11,6 +11,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { toast } from "sonner"
+import { useLogout } from "@/hooks/queries/auth"
 import { useMe, useNotifications } from "@/hooks/queries/misc"
 import { initials } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -84,6 +86,7 @@ export function Sidebar({ mode, onNavigate }: SidebarProps) {
   const isActive = useIsActive()
   const navigate = useNavigate()
   const { data: me } = useMe()
+  const logout = useLogout()
   const { data: notifications } = useNotifications()
   const unread = notifications?.filter((n) => !n.readAt).length ?? 0
 
@@ -122,7 +125,7 @@ export function Sidebar({ mode, onNavigate }: SidebarProps) {
             aria-label="Menu du compte"
           >
             <Avatar className="size-10 ring-2 ring-navy-700">
-              <AvatarFallback className="bg-brand-gradient text-sm font-semibold text-white">{initials(me?.name ?? "Marie Dubois")}</AvatarFallback>
+              <AvatarFallback className="bg-brand-gradient text-sm font-semibold text-white">{initials(me?.name ?? "")}</AvatarFallback>
             </Avatar>
             {mode === "full" && (
               <>
@@ -144,7 +147,18 @@ export function Sidebar({ mode, onNavigate }: SidebarProps) {
               <Settings /> Paramètres
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => navigate("/login")}>
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() =>
+                logout.mutate(undefined, {
+                  onSettled: () => {
+                    onNavigate?.()
+                    navigate("/login", { replace: true })
+                  },
+                  onError: () => toast.error("La déconnexion a échoué. Réessayez."),
+                })
+              }
+            >
               <LogOut /> Se déconnecter
             </DropdownMenuItem>
           </DropdownMenuContent>

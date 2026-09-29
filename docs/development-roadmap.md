@@ -135,3 +135,5 @@ gantt
 - **Phase 0 — Initialisation** : terminée.
 - **Frontend V1 (données simulées)** : terminé (`frontend/`). Toutes les pages de la maquette sont navigables, responsive (390 → 1440 px), sans erreur console, sans violation axe WCAG 2.1 AA automatique, build de production propre. Voir `frontend/README.md` et ADR-021 à ADR-026.
 - **Prochaine étape** : validation UX/visuelle du frontend par le porteur de projet, puis Phase 1 backend (bootstrap Laravel + MySQL Laragon) et Phase 2 (authentification réelle), en remplaçant progressivement `frontend/src/services/*`.
+
+- **Phase 2 — Socle backend (2026-09-29)** : terminé (`backend/`). Laravel 13, MySQL 8.0.30 (Laragon), Redis, Sanctum + Fortify, schéma complet de database.md (12 migrations), modèles, Policies anti-IDOR, API `/api/v1`, limites de débit, journaux structurés expurgés, audit, 58 tests. Intégration React ↔ Laravel : inscription, connexion, déconnexion, utilisateur courant. Voir ADR-028 à ADR-032.

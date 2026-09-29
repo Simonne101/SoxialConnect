@@ -7,6 +7,7 @@ import { NotificationBell } from "@/components/notifications/NotificationBell"
 import { PageLoader } from "@/components/shared/PageLoader"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
+import { RequireAuth } from "./RequireAuth"
 
 /**
  * Layout de l'application connectée.
@@ -14,6 +15,14 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
  * < 768 px : barre supérieure + tiroir de navigation.
  */
 export function AppLayout() {
+  return (
+    <RequireAuth>
+      <AppShell />
+    </RequireAuth>
+  )
+}
+
+function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const { pathname } = useLocation()
 

@@ -19,11 +19,11 @@ avec une évolution future vers `User → Workspace → Members → Roles/Permis
 
 | Élément | État |
 |---|---|
-| Code backend | **Inexistant** (aucun `composer.json`, `app/`, `routes/`) |
+| Code backend | **Socle Laravel livré** (`backend/`) — voir `backend/README.md` |
 | Code frontend | **Frontend V1 livré** (`frontend/`, données simulées) — voir `frontend/README.md` |
 | Maquette | Une planche raster unique : [`Images/maquette.png`](../Images/maquette.png) (1536×1024) |
 | Visuels | [`Images/Image sect-hero.png`](../Images/Image%20sect-hero.png) (illustration du hero de la landing) |
-| Git | Le dossier **n'est pas** un dépôt Git |
+| Git | Dépôt initialisé (branche `main`) |
 | Documentation | Ce dossier `/docs` (phase 0) |
 
 Il s'agit donc d'un projet **greenfield**. La phase 0 produit la documentation, qui sert de source de vérité.
