@@ -12,6 +12,7 @@ export const qk = {
   media: {
     all: ["media"] as const,
     list: (f: MediaFilters) => ["media", "list", f] as const,
+    byIds: (ids: string[]) => ["media", "ids", ids] as const,
     folders: ["media", "folders"] as const,
     tags: ["media", "tags"] as const,
   },

@@ -106,7 +106,52 @@ async function request<T>(method: Method, path: string, body?: unknown, retried 
   return json as ApiEnvelope<T>
 }
 
+/**
+ * Envoi multipart avec suivi de progression (XMLHttpRequest : fetch ne fournit pas la progression
+ * d'envoi). Même protection CSRF et même format d'erreurs que request().
+ */
+async function upload<T>(path: string, form: FormData, onProgress?: (percent: number) => void, retried = false): Promise<ApiEnvelope<T>> {
+  await ensureCsrfCookie()
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("POST", `${API_URL}/api/v1${path}`)
+    xhr.withCredentials = true
+    xhr.setRequestHeader("Accept", "application/json")
+    xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest")
+    const xsrf = readCookie("XSRF-TOKEN")
+    if (xsrf) xhr.setRequestHeader("X-XSRF-TOKEN", xsrf)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.min(100, Math.round((e.loaded / e.total) * 100)))
+    }
+    xhr.onerror = () => reject(new ApiError(0, "Impossible de joindre le serveur. Vérifiez votre connexion."))
+    xhr.onload = () => {
+      if (xhr.status === 419 && !retried) {
+        ensureCsrfCookie(true).then(() => upload<T>(path, form, onProgress, true)).then(resolve, reject)
+        return
+      }
+      let json: unknown = null
+      try {
+        json = JSON.parse(xhr.responseText)
+      } catch {
+        json = null
+      }
+      if (xhr.status === 413) {
+        reject(new ApiError(413, "Fichier trop volumineux pour le serveur."))
+        return
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const payload = (json ?? {}) as { message?: string; errors?: Record<string, string[]> }
+        reject(new ApiError(xhr.status, payload.message ?? "L'envoi a échoué.", payload.errors ?? {}))
+        return
+      }
+      resolve(json as ApiEnvelope<T>)
+    }
+    xhr.send(form)
+  })
+}
+
 export const http = {
+  upload,
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),

@@ -6,8 +6,8 @@ import { ApiError, isApiEnabled } from "./http"
 export const features = {
   /** « Publier maintenant » / « Réessayer » : phase Publishing (pas de simulation présentée comme réelle). */
   publishing: !isApiEnabled,
-  /** Ajout de médias dans le Composer : phase Médias (upload, stockage, traitement). */
-  media: !isApiEnabled,
+  /** Ajout de médias dans le Composer : médiathèque réelle (phase Media) ou démonstration. */
+  media: true,
   /** Connexion / déconnexion des réseaux : phase Social Connectors (OAuth officiel). */
   socialConnect: !isApiEnabled,
 } as const

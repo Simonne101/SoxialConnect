@@ -70,15 +70,15 @@ export default function ComposerPage() {
 
   const existing = usePost(postId)
   const { data: accounts = [] } = useSocialAccounts()
-  const mediaMap = useMediaMap()
   const save = useSavePost()
 
-  // Médias désactivés tant que la phase Médias n'est pas livrée : aucun identifiant n'est envoyé.
+  // Médias : identifiants de la médiathèque (le serveur vérifie propriété, statut « prêt » et quarantaine).
   const form = useForm<ComposerValues>({ defaultValues: { ...EMPTY_VALUES, body: prefill.body ?? "", mediaIds: features.media ? (prefill.mediaIds ?? []) : [] } })
   const { register, watch, setValue, reset, formState } = form
   // Lu pendant le rendu pour que React Hook Form suive isDirty (proxy d'abonnement).
   const { isDirty } = formState
   const values = watch()
+  const mediaMap = useMediaMap(values.mediaIds)
 
   const [activeTab, setActiveTab] = useState<PlatformKey | undefined>()
   const [issues, setIssues] = useState<Issue[]>([])

@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Domain\Media\Security\MediaSecurityScanner;
+use App\Domain\Media\Security\NullMediaScanner;
 use App\Domain\Social\Security\TokenEncrypter;
 use App\Listeners\RecordAuthenticationAudit;
 use App\Models\User;
@@ -28,6 +30,12 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(TokenEncrypter::class, fn () => TokenEncrypter::fromConfig(config('security.token_encryption')));
         $this->app->singleton(SecretRedactor::class, fn () => SecretRedactor::fromConfig());
+
+        // Antivirus des médias : aucun moteur installé pour l'instant (ClamAV : phase ultérieure).
+        // Un driver inconnu ne doit jamais passer pour un moteur fonctionnel.
+        $this->app->singleton(MediaSecurityScanner::class, fn () => match (config('media.scan.driver')) {
+            default => new NullMediaScanner,
+        });
     }
 
     public function boot(): void
@@ -63,6 +71,8 @@ class AppServiceProvider extends ServiceProvider
 
         // Prêtes pour les phases suivantes (upload, IA, publication, OAuth, webhooks).
         RateLimiter::for('uploads', fn (Request $r) => Limit::perHour($limit('uploads_per_hour'))->by($byUser($r)));
+        // Lecture des fichiers par URL signée (vignettes d'une grille) : limite dédiée, par IP.
+        RateLimiter::for('media-files', fn (Request $r) => Limit::perMinute($limit('media_files_per_minute'))->by($r->ip()));
         RateLimiter::for('ai', fn (Request $r) => [
             Limit::perMinute($limit('ai_per_minute'))->by('min|'.$byUser($r)),
             Limit::perDay($limit('ai_per_day'))->by('day|'.$byUser($r)),

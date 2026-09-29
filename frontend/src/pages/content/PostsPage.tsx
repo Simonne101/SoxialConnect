@@ -41,7 +41,6 @@ export default function PostsPage() {
   const [page, setPage] = useState(1)
   const [detail, setDetail] = useState<Post | null>(null)
   const { actions, dialogs } = usePostActions()
-  const mediaMap = useMediaMap()
 
   const current = TABS.find((t) => t.value === tab)!
   // Filtres, recherche et pagination côté serveur ; les compteurs d'onglets viennent de meta.status_counts.
@@ -64,6 +63,8 @@ export default function PostsPage() {
   }
 
   const posts = data?.items ?? []
+  // Vignettes : uniquement les médias des publications affichées.
+  const mediaMap = useMediaMap(posts.flatMap((p) => p.mediaIds))
   const filtering = Boolean(deferredSearch) || platform !== "all"
 
   return (

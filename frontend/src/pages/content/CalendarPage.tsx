@@ -49,7 +49,8 @@ export default function CalendarPage() {
   const [detail, setDetail] = useState<Post | null>(null)
   const now = useNow()
   const { actions, dialogs } = usePostActions()
-  const mediaMap = useMediaMap()
+  // Vignettes utilisées seulement par la fenêtre de détail.
+  const mediaMap = useMediaMap(detail?.mediaIds ?? [])
 
   // Période chargée : la grille du mois affiché (semaines complètes), qui couvre aussi les vues
   // semaine et jour et le jour sélectionné. Filtre from/to appliqué côté serveur.

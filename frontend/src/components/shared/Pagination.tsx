@@ -10,6 +10,7 @@ export function Pagination({
   onChange,
   busy = false,
   label = "Pagination",
+  unit = ["publication", "publications"],
   className,
 }: {
   page: number
@@ -18,13 +19,15 @@ export function Pagination({
   onChange: (page: number) => void
   busy?: boolean
   label?: string
+  /** Libellé des éléments comptés : [singulier, pluriel]. */
+  unit?: [string, string]
   className?: string
 }) {
   if (lastPage <= 1) return null
   return (
     <nav aria-label={label} className={cn("flex items-center justify-between gap-3 pt-4", className)}>
       <p className="text-xs text-ink-muted" aria-live="polite">
-        Page {page} sur {lastPage} · {total.toLocaleString("fr-FR")} publication{total > 1 ? "s" : ""}
+        Page {page} sur {lastPage} · {total.toLocaleString("fr-FR")} {total > 1 ? unit[1] : unit[0]}
       </p>
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" disabled={page <= 1 || busy} onClick={() => onChange(page - 1)}>

@@ -137,3 +137,6 @@ gantt
 - **Prochaine étape** : validation UX/visuelle du frontend par le porteur de projet, puis Phase 1 backend (bootstrap Laravel + MySQL Laragon) et Phase 2 (authentification réelle), en remplaçant progressivement `frontend/src/services/*`.
 
 - **Phase 2 — Socle backend (2026-09-29)** : terminé (`backend/`). Laravel 13, MySQL 8.0.30 (Laragon), Redis, Sanctum + Fortify, schéma complet de database.md (12 migrations), modèles, Policies anti-IDOR, API `/api/v1`, limites de débit, journaux structurés expurgés, audit, 58 tests. Intégration React ↔ Laravel : inscription, connexion, déconnexion, utilisateur courant. Voir ADR-028 à ADR-032.
+
+- **Content (2026-09-29)** : publications, brouillons, calendrier, détail, dupliquer / annuler / reprogrammer, verrou de version ; comptes sociaux de démonstration (développement local). Commit `b002784`.
+- **Phase 7 — Media V1 (2026-09-29)** : médiathèque réelle (upload sécurisé par magic bytes, stockage privé abstrait, URLs signées, vignettes et réencodage GD, dossiers, tags, recherche, filtres, tri, pagination, suppression logique et purge, intégration au Composer). Antivirus : abstraction prête, aucun moteur installé (médias « non analysés »). FFmpeg : phase Video. Voir ADR-033 à ADR-035.

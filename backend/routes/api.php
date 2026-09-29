@@ -2,6 +2,9 @@
 
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\MeController;
+use App\Http\Controllers\Api\V1\MediaController;
+use App\Http\Controllers\Api\V1\MediaFileController;
+use App\Http\Controllers\Api\V1\MediaFolderController;
 use App\Http\Controllers\Api\V1\PostController;
 use App\Http\Controllers\Api\V1\SocialController;
 use Illuminate\Support\Facades\Route;
@@ -48,6 +51,14 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         });
     });
 
+    // --- Fichiers médias : URL signée courte (générée après autorisation), sans session requise.
+    Route::get('media/{media}/file/{variant}', [MediaFileController::class, 'show'])
+        ->whereUuid('media')
+        ->whereIn('variant', ['original', 'thumbnail'])
+        ->middleware(['signed', 'throttle:media-files'])
+        ->withoutMiddleware('throttle:api')
+        ->name('media.file');
+
     // --- Ressources authentifiées ---------------------------------------------------------
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('users/me', [MeController::class, 'show'])->name('users.me');
@@ -67,6 +78,26 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 Route::post('duplicate', 'duplicate')->name('duplicate');
                 Route::post('cancel', 'cancel')->name('cancel');
                 Route::post('reschedule', 'reschedule')->name('reschedule');
+            });
+
+            // Médiathèque (upload : vérification d'e-mail + limite « uploads », docs/security.md §3 et §12).
+            Route::prefix('media')->name('media.')->group(function () {
+                Route::controller(MediaFolderController::class)->prefix('folders')->name('folders.')->group(function () {
+                    Route::get('/', 'index')->name('index');
+                    Route::post('/', 'store')->name('store');
+                    Route::patch('{folder}', 'update')->whereUuid('folder')->name('update');
+                    Route::delete('{folder}', 'destroy')->whereUuid('folder')->name('destroy');
+                });
+                Route::controller(MediaController::class)->group(function () {
+                    Route::get('tags', 'tags')->name('tags');
+                    Route::get('/', 'index')->name('index');
+                    Route::post('/', 'store')->middleware('throttle:uploads')->name('store');
+                    Route::get('{media}', 'show')->whereUuid('media')->name('show');
+                    Route::patch('{media}', 'update')->whereUuid('media')->name('update');
+                    Route::delete('{media}', 'destroy')->whereUuid('media')->name('destroy');
+                    Route::post('{media}/tags', 'addTag')->whereUuid('media')->name('tags.store');
+                    Route::delete('{media}/tags/{tag}', 'removeTag')->whereUuid('media')->name('tags.destroy');
+                });
             });
         });
     });

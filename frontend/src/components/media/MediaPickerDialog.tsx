@@ -1,7 +1,7 @@
-import { Check, ImagePlus, Upload } from "lucide-react"
-import { useRef, useState } from "react"
-import { toast } from "sonner"
-import { EmptyState, ListSkeleton } from "@/components/shared/States"
+import { Check, ImagePlus, Search, Upload } from "lucide-react"
+import { useDeferredValue, useRef, useState } from "react"
+import { EmptyState, ErrorState, ListSkeleton } from "@/components/shared/States"
+import { Pagination } from "@/components/shared/Pagination"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -11,11 +11,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { FilterTabs } from "@/components/shared/FilterTabs"
-import { useMedia, useUploadMedia } from "@/hooks/queries/media"
+import { useMedia } from "@/hooks/queries/media"
+import { useUploadFiles } from "@/hooks/useUploadFiles"
 import { cn } from "@/lib/utils"
-import type { MediaType } from "@/types"
+import { UploadQueuePanel } from "./UploadQueuePanel"
 import { MediaThumb } from "./MediaThumb"
+
+const PICKER_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
 
 /** Sélection de médias depuis la médiathèque (ou import) pour le Composer. */
 export function MediaPickerDialog({
@@ -29,32 +33,28 @@ export function MediaPickerDialog({
   initial: string[]
   onConfirm: (ids: string[]) => void
 }) {
-  const [type, setType] = useState<MediaType | "all">("all")
+  const [type, setType] = useState<"all" | "image" | "video">("all")
+  const [search, setSearch] = useState("")
+  const deferred = useDeferredValue(search)
+  const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<string[]>(initial)
   const fileRef = useRef<HTMLInputElement>(null)
-  const { data, isLoading } = useMedia({ type })
-  const upload = useUploadMedia()
-  const items = (data ?? []).filter((m) => m.type === "image" || m.type === "video")
+  const uploadFiles = useUploadFiles()
+  // Images et vidéos seulement (publiables) ; « all » exclut audio et documents côté affichage.
+  const { data, isLoading, isError, isFetching, refetch } = useMedia({ type, search: deferred, page, perPage: 20 })
+  const items = (data?.items ?? []).filter((m) => m.type === "image" || m.type === "video")
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
 
-  const onFiles = (files: FileList | null) => {
+  const onFiles = async (files: FileList | null) => {
     if (!files?.length) return
-    upload.mutate(
-      { files: Array.from(files), folderId: null },
-      {
-        onSuccess: ({ accepted, rejected }) => {
-          setSelected((s) => [...s, ...accepted.map((a) => a.id)])
-          if (accepted.length) toast.success(`${accepted.length} fichier(s) en cours d'import.`)
-          rejected.forEach((r) => toast.error(`${r.name} : ${r.reason}`))
-        },
-      },
-    )
+    const uploaded = await uploadFiles(Array.from(files), null)
+    setSelected((s) => [...s, ...uploaded.filter((m) => m.usable).map((m) => m.id)])
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-hidden sm:max-w-[760px]">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-[760px]">
         <DialogHeader>
           <DialogTitle>Ajouter des médias</DialogTitle>
           <DialogDescription>Choisissez dans votre médiathèque ou importez depuis votre ordinateur.</DialogDescription>
@@ -64,21 +64,28 @@ export function MediaPickerDialog({
             variant="pill"
             label="Type de média"
             value={type}
-            onChange={setType}
+            onChange={(v) => { setType(v); setPage(1) }}
             items={[
               { value: "all", label: "Tous" },
               { value: "image", label: "Images" },
               { value: "video", label: "Vidéos" },
             ]}
           />
-          <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm" className="sr-only" onChange={(e) => onFiles(e.target.files)} tabIndex={-1} aria-hidden="true" />
+          <input ref={fileRef} type="file" multiple accept={PICKER_ACCEPT} className="sr-only" onChange={(e) => void onFiles(e.target.files)} tabIndex={-1} aria-hidden="true" />
           <Button variant="outline" onClick={() => fileRef.current?.click()}>
             <Upload /> Importer depuis l'ordinateur
           </Button>
         </div>
-        <div className="-mx-1 max-h-[46dvh] overflow-y-auto px-1 py-1">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
+          <Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Rechercher un média…" className="pl-10" aria-label="Rechercher un média" />
+        </div>
+        <UploadQueuePanel />
+        <div className="-mx-1 px-1 py-1">
           {isLoading ? (
             <ListSkeleton rows={3} />
+          ) : isError ? (
+            <ErrorState onRetry={() => refetch()} />
           ) : items.length === 0 ? (
             <EmptyState icon={ImagePlus} title="Aucun média" description="Importez une image ou une vidéo pour l'ajouter à votre publication." />
           ) : (
@@ -86,7 +93,7 @@ export function MediaPickerDialog({
               {items.map((m) => {
                 const index = selected.indexOf(m.id)
                 const isSel = index >= 0
-                const busy = m.status !== "ready"
+                const busy = !m.usable
                 return (
                   <li key={m.id}>
                     <button
@@ -94,7 +101,7 @@ export function MediaPickerDialog({
                       disabled={busy}
                       onClick={() => toggle(m.id)}
                       aria-pressed={isSel}
-                      aria-label={`${m.name}${busy ? " (en cours de traitement)" : ""}`}
+                      aria-label={`${m.name}${busy ? " (pas encore disponible)" : ""}`}
                       className={cn("relative block w-full rounded-xl p-0.5 transition-shadow", isSel ? "ring-2 ring-brand-500" : "ring-1 ring-transparent hover:ring-border", busy && "opacity-60")}
                     >
                       <MediaThumb media={m} className="aspect-square w-full" />
@@ -103,13 +110,14 @@ export function MediaPickerDialog({
                           {selected.length > 1 ? index + 1 : <Check className="size-3.5" />}
                         </span>
                       )}
-                      {busy && <span className="absolute inset-x-1 bottom-1 rounded bg-navy-950/70 py-0.5 text-center text-[10px] text-white">Traitement…</span>}
+                      {busy && <span className="absolute inset-x-1 bottom-1 rounded bg-navy-950/70 py-0.5 text-center text-[10px] text-white">Indisponible</span>}
                     </button>
                   </li>
                 )
               })}
             </ul>
           )}
+          {data && <Pagination page={data.page} lastPage={data.lastPage} total={data.total} onChange={setPage} busy={isFetching} label="Pages de médias" unit={["média", "médias"]} />}
         </div>
         <DialogFooter className="items-center sm:justify-between">
           <p className="text-sm text-ink-muted">{selected.length} sélectionné{selected.length > 1 ? "s" : ""}</p>

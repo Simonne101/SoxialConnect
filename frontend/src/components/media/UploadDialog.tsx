@@ -11,12 +11,26 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useUploadFiles } from "@/hooks/useUploadFiles"
+import { ACCEPT_ATTRIBUTE } from "@/services/media"
 import { cn } from "@/lib/utils"
 import type { MediaFolder } from "@/types"
 
-export const ACCEPT = "image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/wav,application/pdf"
+export const ACCEPT = ACCEPT_ATTRIBUTE
 
-export function UploadDialog({ open, onOpenChange, folders, defaultFolder }: { open: boolean; onOpenChange: (o: boolean) => void; folders: MediaFolder[]; defaultFolder: string | null }) {
+export function UploadDialog({
+  open,
+  onOpenChange,
+  folders,
+  defaultFolder,
+  antivirus,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  folders: MediaFolder[]
+  defaultFolder: string | null
+  /** Moteur antivirus réellement disponible (meta de l'API) : le texte ne l'annonce que dans ce cas. */
+  antivirus: boolean
+}) {
   const [folder, setFolder] = useState<string>(defaultFolder ?? "none")
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -24,7 +38,7 @@ export function UploadDialog({ open, onOpenChange, folders, defaultFolder }: { o
 
   const send = (list: FileList | null) => {
     if (!list?.length) return
-    uploadFiles(Array.from(list), folder === "none" ? null : folder)
+    void uploadFiles(Array.from(list), folder === "none" ? null : folder)
     onOpenChange(false)
   }
   const onDrop = (e: DragEvent) => {
@@ -65,9 +79,13 @@ export function UploadDialog({ open, onOpenChange, folders, defaultFolder }: { o
           <p className="text-xs text-ink-muted">ou</p>
           <input ref={inputRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden="true" onChange={(e) => send(e.target.files)} />
           <Button onClick={() => inputRef.current?.click()}>Choisir des fichiers</Button>
-          <p className="text-xs text-ink-muted">JPG, PNG, WebP, GIF (20 Mo) · MP4, MOV, WebM (1 Go) · MP3, M4A, WAV · PDF</p>
+          <p className="text-xs text-ink-muted">JPG, PNG, WebP, GIF (20 Mo) · MP4, MOV, WebM · MP3, M4A, WAV · PDF (25 Mo)</p>
         </div>
-        <p className="text-xs text-ink-muted">Chaque fichier est vérifié (format réel et analyse antivirus) avant d'être disponible.</p>
+        <p className="text-xs text-ink-muted">
+          {antivirus
+            ? "Chaque fichier est vérifié (format réel, taille, dimensions) puis analysé par l'antivirus avant d'être disponible."
+            : "Chaque fichier est vérifié (format réel, taille, dimensions) avant d'être disponible."}
+        </p>
       </DialogContent>
     </Dialog>
   )

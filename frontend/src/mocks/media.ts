@@ -32,6 +32,9 @@ const DEFS: Def[] = [
   ["m-17", "logo-soxialconnect.png", "image", 11, "f-brand", ["logo"], { mimeType: "image/png" }],
 ]
 
+/** Démonstration : médias prêts, sans fichier réel (donc sans URL de téléchargement). */
+const DEMO_FIELDS = { scanStatus: "clean", usable: true, url: null, downloadUrl: null, failureReason: null } as const
+
 export const mockMedia: MediaAsset[] = [
   {
     id: "m-hero",
@@ -46,6 +49,8 @@ export const mockMedia: MediaAsset[] = [
     folderId: "f-brand",
     tags: ["site", "marque"],
     preview: { kind: "image", src: heroImage },
+    ...DEMO_FIELDS,
+    extension: "png",
     isGif: false,
     createdAt: minutesAgo(60 * 24 * 2),
   },
@@ -63,6 +68,8 @@ export const mockMedia: MediaAsset[] = [
     folderId: null,
     tags: img.tags,
     preview: { kind: "image", src: img.src },
+    ...DEMO_FIELDS,
+    extension: "webp",
     isGif: false,
     createdAt: minutesAgo(60 * (26 + i * 5)),
   })),
@@ -79,6 +86,8 @@ export const mockMedia: MediaAsset[] = [
     folderId,
     tags,
     preview: { kind: "gradient", className: `thumb-${thumb}` },
+    ...DEMO_FIELDS,
+    extension: name.split(".").pop() ?? null,
     isGif: false,
     createdAt: minutesAgo(60 * (i * 9 + 3)),
     ...extra,

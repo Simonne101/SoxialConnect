@@ -21,7 +21,9 @@ class SecurityHeaders
         $headers->set('Cross-Origin-Opener-Policy', 'same-origin');
 
         // L'API ne sert que du JSON : aucune ressource active ne doit pouvoir s'exécuter.
-        if ($request->is('api/*')) {
+        // Exception : les fichiers médias (URL signée courte) définissent leurs propres en-têtes
+        // (CSP « sandbox », cache privé le temps de validité de l'URL) — voir MediaFileController.
+        if ($request->is('api/*') && ! $request->routeIs('api.v1.media.file')) {
             $headers->set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
             $headers->set('Cache-Control', 'no-store, private');
         }

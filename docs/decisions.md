@@ -180,3 +180,21 @@ Format : Decision / Context / Reason / Consequences / Status / Date.
 - **Context** : sous Windows, le serveur intégré de PHP traite une requête à la fois ; sans OPcache (non chargé dans `C:\Program Files\php\php.ini`), chaque requête prend 0,6 à 4 s.
 - **Recommendation** : activer OPcache dans le php.ini local (`zend_extension=opcache`, `opcache.enable_cli=1`) ou servir l'API via l'Nginx/Apache de Laragon (PHP-CGI) sur `localhost:8000`. Aucun impact sur la production (PHP-FPM + OPcache).
 - **Status** : Open (décision du porteur de projet : modification de la configuration PHP locale) — 2026-09-29
+
+### ADR-033 — Médiathèque V1 : pipeline d'upload, stockage abstrait, antivirus absent
+- **Decision** : upload via l'API (`POST /api/v1/media`, multipart) ; contrôle par magic bytes (finfo) avec liste blanche et cohérence d'extension (`config/media.php`) ; stockage privé sur le disque `media` via `MediaStorage` (clés `users/{user}/media/{media}/{variante}.{ext}`, jamais le nom d'origine) ; lecture par URL signée courte (route `api.v1.media.file`, 15 min) ou URL présignée du fournisseur si le disque la supporte (S3/MinIO) ; images réencodées par GD (EXIF/GPS supprimés) avec vignette WebP 480 px ; traitement synchrone par défaut, `ProcessMediaJob` (queue `media`) si `MEDIA_PROCESS_ASYNC=true` ; suppression logique puis purge physique (`media:purge-deleted`, 30 jours).
+- **Antivirus** : abstraction `MediaSecurityScanner` ; aucun moteur installé (`NullMediaScanner`) → les médias restent `scan_status = pending` (« Non analysé »), jamais présentés comme sains. `MEDIA_SCAN_REQUIRED=true` (défaut en production) refuse les imports tant qu'aucun moteur n'est disponible (échec fermé, 503). Règle d'usage unique : `ScanPolicy` (publication, lecture des fichiers).
+- **Tags** : colonne JSON indexée `media.tags` conformément à database.md §3.4 (pas de table de liaison) ; normalisés en minuscules.
+- **Vidéo / audio** : sans FFmpeg, ni vignette ni durée (aucune miniature simulée) ; champs prêts pour la phase Video.
+- **Status** : Accepted — 2026-09-29
+
+### ADR-034 — Suppression des dossiers de médias côté application (pas de cascade MySQL)
+- **Context** : en local (MySQL 8.0.30, Laragon), une suppression de dossier par cascade (`media_folders.parent_id` ON DELETE CASCADE, `media.folder_id` ON DELETE SET NULL) a arrêté le serveur MySQL. Les tables concernées ont des index sur colonnes générées virtuelles (`media_folders.parent_key`, index multi-valué de `media.tags`).
+- **Decision** : `ManageFolders::delete()` remet d'abord les médias de la branche à la racine, puis supprime les dossiers du plus profond au plus haut : aucune action référentielle n'est déclenchée. Les contraintes restent en place (filet de sécurité).
+- **Risque ouvert** : la suppression d'un compte utilisateur déclenche les mêmes cascades (`users` → `media`, `media_folders`). À traiter avec la fonctionnalité de suppression de compte (purge applicative ordonnée, ou mise à jour de MySQL au-delà de 8.0.30 après vérification).
+- **Status** : Accepted — 2026-09-29
+
+### ADR-035 — Développement local : GD et limites d'upload
+- **Context** : le PHP système (`C:\Program Files\php\php.ini`) n'active pas GD et limite l'upload à 2 Mo ; sa modification demande les droits administrateur.
+- **Recommendation** : dans ce php.ini (en administrateur) : `extension=gd`, `extension=exif`, `upload_max_filesize = 100M`, `post_max_size = 110M`, `memory_limit = 256M`. Sans GD, l'application fonctionne (pas de réencodage ni de vignette, signalé dans les métadonnées) et les tests dépendant de GD sont ignorés.
+- **Status** : Open (décision du porteur de projet) — 2026-09-29

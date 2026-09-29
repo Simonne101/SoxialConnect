@@ -4,6 +4,7 @@ namespace App\Http\Requests\Content;
 
 use App\Domain\Content\Enums\PostFormat;
 use App\Domain\Media\Enums\MediaStatus;
+use App\Domain\Media\Security\ScanPolicy;
 use App\Domain\Social\Enums\SocialAccountStatus;
 use App\Models\Post;
 use App\Support\Validation\Timezones;
@@ -54,7 +55,8 @@ class SavePostRequest extends FormRequest
                 Rule::exists('media', 'id')->where(fn ($q) => $q
                     ->where('user_id', $userId)
                     ->where('status', MediaStatus::Ready->value)
-                    ->where('scan_status', 'clean')
+                    // Même règle que Media::usable() : « clean », ou non analysé sans antivirus configuré (dev).
+                    ->whereIn('scan_status', app(ScanPolicy::class)->usableStatuses())
                     ->whereNull('deleted_at')),
             ],
 

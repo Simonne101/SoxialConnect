@@ -26,6 +26,7 @@ return [
         'auth_sensitive_per_hour' => (int) env('RATE_LIMIT_AUTH_SENSITIVE_PER_HOUR', 20),
         'api_per_minute' => (int) env('RATE_LIMIT_API_PER_MINUTE', 120),
         'uploads_per_hour' => (int) env('RATE_LIMIT_UPLOADS_PER_HOUR', 30),
+        'media_files_per_minute' => (int) env('RATE_LIMIT_MEDIA_FILES_PER_MINUTE', 600),
         'ai_per_minute' => (int) env('RATE_LIMIT_AI_PER_MINUTE', 20),
         'ai_per_day' => (int) env('RATE_LIMIT_AI_PER_DAY', 300),
         'publish_per_hour' => (int) env('RATE_LIMIT_PUBLISH_PER_HOUR', 60),

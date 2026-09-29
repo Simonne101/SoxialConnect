@@ -23,7 +23,7 @@ export default function DraftsPage() {
   // (ajustement pendant le rendu, sans effet : https://react.dev/learn/you-might-not-need-an-effect)
   if (data && page > data.lastPage) setPage(data.lastPage)
   const { actions, dialogs } = usePostActions()
-  const mediaMap = useMediaMap()
+  const mediaMap = useMediaMap((data?.items ?? []).flatMap((p) => p.mediaIds))
   const [detail, setDetail] = useState<Post | null>(null)
 
   return (

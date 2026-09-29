@@ -30,6 +30,16 @@ return [
 
     'disks' => [
 
+        // Médiathèque : privé, jamais servi directement (lecture par URL signée uniquement).
+        'media' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/media'),
+            'visibility' => 'private',
+            'serve' => false,
+            'throw' => true,
+            'report' => false,
+        ],
+
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),

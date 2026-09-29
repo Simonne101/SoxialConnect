@@ -3,7 +3,9 @@ import type {
   ClipStatus,
   MediaStatus,
   PostStatus,
+  ScanStatus,
   SocialAccountStatus,
+  UploadState,
   VariantStatus,
   VideoProjectStatus,
 } from "@/types"
@@ -67,6 +69,24 @@ export const MEDIA_STATUS: Record<MediaStatus, StatusMeta> = {
   ready: meta("Prêt", "success"),
   failed: meta("Échec", "danger"),
   deleted: meta("Supprimé", "neutral"),
+}
+
+/** Analyse antivirus : « pending » = non analysé (jamais présenté comme sain). */
+export const SCAN_STATUS: Record<ScanStatus, StatusMeta> = {
+  pending: meta("Non analysé", "neutral"),
+  clean: meta("Analysé", "success"),
+  infected: meta("Refusé (antivirus)", "danger"),
+  error: meta("Erreur d'analyse", "danger"),
+}
+
+/** États d'un fichier dans la file d'import. */
+export const UPLOAD_STATE: Record<UploadState, StatusMeta> = {
+  pending: meta("En attente", "neutral"),
+  uploading: meta("Envoi…", "secondary"),
+  processing: meta("Traitement…", "info"),
+  ready: meta("Prêt", "success"),
+  failed: meta("Échec", "danger"),
+  quarantined: meta("En quarantaine", "warning"),
 }
 
 export const PROJECT_STATUS: Record<VideoProjectStatus, StatusMeta> = {

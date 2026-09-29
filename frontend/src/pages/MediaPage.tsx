@@ -1,34 +1,55 @@
-import { Check, Folder, FolderPlus, ImagePlus, LayoutGrid, List, Plus, Search, SearchX, Tag, Trash2, Upload, X } from "lucide-react"
+import { Check, Folder, FolderInput, FolderPlus, ImagePlus, LayoutGrid, List, MoreHorizontal, Pencil, Plus, Search, SearchX, Tag, Trash2, Upload, X } from "lucide-react"
 import { useDeferredValue, useState, type DragEvent } from "react"
 import { toast } from "sonner"
 import { MediaPreviewDialog } from "@/components/media/MediaPreviewDialog"
 import { MediaThumb } from "@/components/media/MediaThumb"
 import { UploadDialog } from "@/components/media/UploadDialog"
-import { useUploadFiles } from "@/hooks/useUploadFiles"
+import { UploadQueuePanel } from "@/components/media/UploadQueuePanel"
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
 import { FilterTabs } from "@/components/shared/FilterTabs"
 import { PageHeader } from "@/components/shared/PageHeader"
+import { Pagination } from "@/components/shared/Pagination"
 import { EmptyState, ErrorState } from "@/components/shared/States"
 import { StatusBadge } from "@/components/shared/StatusBadge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Progress } from "@/components/ui/progress"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useCreateFolder, useDeleteMedia, useMedia, useMediaFolders, useMediaTags } from "@/hooks/queries/media"
+import {
+  useCreateFolder,
+  useDeleteFolder,
+  useDeleteMedia,
+  useMedia,
+  useMediaFolders,
+  useMediaTags,
+  useRenameFolder,
+  useUpdateMedia,
+} from "@/hooks/queries/media"
+import { useUploadFiles } from "@/hooks/useUploadFiles"
 import { formatBytes, formatDate, formatDuration } from "@/lib/format"
+import { apiErrorMessage } from "@/lib/http"
 import { MEDIA_STATUS } from "@/lib/status"
 import { cn } from "@/lib/utils"
-import type { MediaAsset, MediaType } from "@/types"
+import type { MediaAsset, MediaFilters, MediaFolder, MediaSort } from "@/types"
 
 // Maquette : Tous / Images / Vidéos / GIF — complété par Audio et Documents (cahier des charges).
-const TABS: { value: string; label: string }[] = [
+const TABS: { value: NonNullable<MediaFilters["type"]>; label: string }[] = [
   { value: "all", label: "Tous" },
   { value: "image", label: "Images" },
   { value: "video", label: "Vidéos" },
@@ -37,53 +58,173 @@ const TABS: { value: string; label: string }[] = [
   { value: "document", label: "Documents" },
 ]
 
+const SORTS: { value: string; label: string; sort: MediaSort; direction: "asc" | "desc" }[] = [
+  { value: "recent", label: "Plus récents", sort: "created_at", direction: "desc" },
+  { value: "oldest", label: "Plus anciens", sort: "created_at", direction: "asc" },
+  { value: "name", label: "Nom (A → Z)", sort: "name", direction: "asc" },
+  { value: "size", label: "Plus volumineux", sort: "size", direction: "desc" },
+]
+
+/** Dossiers dans l'ordre de l'arborescence, avec leur profondeur (indentation). */
+function folderTree(folders: MediaFolder[]): { folder: MediaFolder; depth: number }[] {
+  const byParent = new Map<string | null, MediaFolder[]>()
+  for (const f of folders) byParent.set(f.parentId, [...(byParent.get(f.parentId) ?? []), f])
+  const out: { folder: MediaFolder; depth: number }[] = []
+  const walk = (parent: string | null, depth: number) => {
+    for (const f of (byParent.get(parent) ?? []).sort((a, b) => a.name.localeCompare(b.name, "fr"))) {
+      out.push({ folder: f, depth })
+      walk(f.id, depth + 1)
+    }
+  }
+  walk(null, 0)
+  return out
+}
+
+/** Libellé d'un média pas encore utilisable (grille). */
+function unavailableLabel(m: MediaAsset): string | null {
+  if (m.usable) return null
+  if (m.status === "uploading" || m.status === "processing") return MEDIA_STATUS[m.status].label
+  if (m.status === "failed") return "Échec"
+  return "En quarantaine"
+}
+
 export default function MediaPage() {
-  const [tab, setTab] = useState("all")
+  const [tab, setTab] = useState<NonNullable<MediaFilters["type"]>>("all")
   const [folderId, setFolderId] = useState<string>("all")
   const [tag, setTag] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const deferred = useDeferredValue(search)
+  const [sortKey, setSortKey] = useState("recent")
+  const [perPage, setPerPage] = useState(20)
+  const [page, setPage] = useState(1)
   const [layout, setLayout] = useState<"grid" | "list">("grid")
   const [selected, setSelected] = useState<string[]>([])
   const [preview, setPreview] = useState<MediaAsset | null>(null)
   const [toDelete, setToDelete] = useState<string[] | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [folderDialog, setFolderDialog] = useState(false)
+  const [folderDialog, setFolderDialog] = useState<{ mode: "create"; parentId: string | null } | { mode: "rename"; folder: MediaFolder } | null>(null)
   const [folderName, setFolderName] = useState("")
+  const [folderToDelete, setFolderToDelete] = useState<MediaFolder | null>(null)
   const [dragging, setDragging] = useState(false)
 
-  const type: MediaType | "all" = tab === "gif" ? "image" : (tab as MediaType | "all")
-  const { data, isLoading, isError, refetch } = useMedia({ type, folderId, tag, search: deferred })
+  const sort = SORTS.find((s) => s.value === sortKey) ?? SORTS[0]
+  const { data, isLoading, isFetching, isError, refetch } = useMedia({
+    type: tab,
+    folderId,
+    tag,
+    search: deferred,
+    sort: sort.sort,
+    direction: sort.direction,
+    page,
+    perPage,
+  })
   const folders = useMediaFolders()
   const tags = useMediaTags()
   const createFolder = useCreateFolder()
+  const renameFolder = useRenameFolder()
+  const deleteFolder = useDeleteFolder()
+  const updateMedia = useUpdateMedia()
   const del = useDeleteMedia()
   const uploadFiles = useUploadFiles()
 
-  const items = (data ?? []).filter((m) => (tab === "gif" ? m.isGif : true))
+  // Page vidée (suppression, déplacement) → dernière page existante (ajustement pendant le rendu).
+  if (data && page > data.lastPage) setPage(data.lastPage)
+
+  const items = data?.items ?? []
+  const folderList = folders.data ?? []
+  const tree = folderTree(folderList)
   const filtering = Boolean(deferred) || tag !== null || folderId !== "all" || tab !== "all"
+  const antivirus = data?.antivirus.available ?? false
+  const names = Object.fromEntries(items.map((m) => [m.id, m.name]))
+  const onError = (fallback: string) => (error: unknown) => toast.error(apiErrorMessage(error, fallback))
+  const resetPage = <T,>(set: (v: T) => void) => (v: T) => {
+    set(v)
+    setPage(1)
+    setSelected([])
+  }
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+  const currentFolder = folderId !== "all" && folderId !== "root" ? folderId : null
 
   const confirmDelete = () => {
     if (!toDelete) return
-    del.mutate(toDelete, {
-      onSuccess: ({ deleted, blocked }) => {
-        if (deleted.length) toast.success(`${deleted.length} média(s) supprimé(s).`)
-        if (blocked.length) toast.error(`Impossible de supprimer ${blocked.join(", ")} : utilisé par une publication programmée.`)
-        setSelected((s) => s.filter((id) => !deleted.includes(id)))
-        setPreview(null)
+    del.mutate(
+      { ids: toDelete, names },
+      {
+        onSuccess: ({ deleted, blocked, failed }) => {
+          if (deleted.length) toast.success(deleted.length === 1 ? "Média supprimé." : `${deleted.length} médias supprimés.`)
+          if (blocked.length) toast.error(`Impossible de supprimer ${blocked.join(", ")} : utilisé par une publication programmée.`)
+          if (failed.length) toast.error(`La suppression a échoué pour ${failed.join(", ")}. Réessayez.`)
+          setSelected((s) => s.filter((id) => !deleted.includes(id)))
+          setPreview(null)
+        },
+        onError: onError("La suppression a échoué. Réessayez."),
       },
-    })
+    )
     setToDelete(null)
+  }
+
+  const moveSelection = async (target: string | null) => {
+    const ids = [...selected]
+    const results = await Promise.allSettled(ids.map((id) => updateMedia.mutateAsync({ id, patch: { folderId: target } })))
+    const moved = results.filter((r) => r.status === "fulfilled").length
+    if (moved) toast.success(moved === 1 ? "Média déplacé." : `${moved} médias déplacés.`)
+    if (moved < ids.length) toast.error(`${ids.length - moved} média(s) n'ont pas pu être déplacés.`)
+    setSelected([])
+  }
+
+  const submitFolder = () => {
+    const name = folderName.trim()
+    if (!name || !folderDialog) return
+    if (folderDialog.mode === "create") {
+      createFolder.mutate(
+        { name, parentId: folderDialog.parentId },
+        {
+          onSuccess: (f) => {
+            toast.success(`Dossier « ${f.name} » créé.`)
+            resetPage(setFolderId)(f.id)
+            setFolderDialog(null)
+          },
+          onError: onError("Le dossier n'a pas pu être créé."),
+        },
+      )
+    } else {
+      renameFolder.mutate(
+        { id: folderDialog.folder.id, name },
+        {
+          onSuccess: () => {
+            toast.success("Dossier renommé.")
+            setFolderDialog(null)
+          },
+          onError: onError("Le dossier n'a pas pu être renommé."),
+        },
+      )
+    }
+  }
+
+  const openFolderDialog = (value: NonNullable<typeof folderDialog>) => {
+    setFolderName(value.mode === "rename" ? value.folder.name : "")
+    setFolderDialog(value)
   }
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    if (e.dataTransfer.files.length) uploadFiles(Array.from(e.dataTransfer.files), folderId === "all" ? null : folderId)
+    if (e.dataTransfer.files.length) void uploadFiles(Array.from(e.dataTransfer.files), currentFolder)
   }
 
-  const folderList = folders.data ?? []
+  const folderButton = (id: string, label: string, count: number | null, depth = 0) => (
+    <button
+      type="button"
+      onClick={() => resetPage(setFolderId)(id)}
+      aria-current={folderId === id ? "true" : undefined}
+      style={{ paddingLeft: `${0.625 + depth * 0.875}rem` }}
+      className={cn("flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 pr-2 text-left text-sm whitespace-nowrap", folderId === id ? "bg-brand-50 font-semibold text-brand-700" : "text-ink-soft hover:bg-muted")}
+    >
+      <Folder className="size-4 shrink-0" aria-hidden="true" />
+      <span className="flex-1 truncate">{label}</span>
+      {count !== null && <span className="text-xs text-ink-muted">{count}</span>}
+    </button>
+  )
 
   return (
     <>
@@ -97,29 +238,41 @@ export default function MediaPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
         {/* Dossiers et tags */}
         <aside className="space-y-5">
           <nav aria-label="Dossiers" className="surface-card p-3">
             <div className="flex items-center justify-between px-2 pb-2">
               <h2 className="text-sm font-semibold">Dossiers</h2>
-              <Button variant="ghost" size="icon-xs" onClick={() => setFolderDialog(true)} aria-label="Nouveau dossier">
+              <Button variant="ghost" size="icon-xs" onClick={() => openFolderDialog({ mode: "create", parentId: currentFolder })} aria-label={currentFolder ? "Nouveau sous-dossier" : "Nouveau dossier"}>
                 <FolderPlus />
               </Button>
             </div>
             <ul className="flex gap-1 overflow-x-auto lg:flex-col">
-              {[{ id: "all", name: "Tous les médias", count: null as number | null }, ...folderList].map((f) => (
-                <li key={f.id} className="shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setFolderId(f.id)}
-                    aria-current={folderId === f.id ? "true" : undefined}
-                    className={cn("flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm whitespace-nowrap", folderId === f.id ? "bg-brand-50 font-semibold text-brand-700" : "text-ink-soft hover:bg-muted")}
-                  >
-                    <Folder className="size-4 shrink-0" aria-hidden="true" />
-                    <span className="flex-1 truncate">{f.name}</span>
-                    {f.count !== null && <span className="text-xs text-ink-muted">{f.count}</span>}
-                  </button>
+              <li className="flex shrink-0">{folderButton("all", "Tous les médias", null)}</li>
+              <li className="flex shrink-0">{folderButton("root", "Sans dossier", null)}</li>
+              {tree.map(({ folder, depth }) => (
+                <li key={folder.id} className="group flex shrink-0 items-center">
+                  {folderButton(folder.id, folder.name, folder.count, depth)}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon-xs" className="shrink-0 opacity-60 group-hover:opacity-100 focus-visible:opacity-100" aria-label={`Actions du dossier ${folder.name}`}>
+                        <MoreHorizontal />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => openFolderDialog({ mode: "rename", folder })}>
+                        <Pencil /> Renommer
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={depth >= 4} onSelect={() => openFolderDialog({ mode: "create", parentId: folder.id })}>
+                        <FolderPlus /> Nouveau sous-dossier
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem variant="destructive" onSelect={() => setFolderToDelete(folder)}>
+                        <Trash2 /> Supprimer
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </li>
               ))}
             </ul>
@@ -128,10 +281,11 @@ export default function MediaPage() {
             <h2 id="tags-title" className="flex items-center gap-2 text-sm font-semibold"><Tag className="size-4" aria-hidden="true" /> Tags</h2>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {(tags.data ?? []).map((t) => (
-                <button key={t} type="button" aria-pressed={tag === t} onClick={() => setTag(tag === t ? null : t)} className={cn("rounded-full px-2.5 py-1 text-xs font-medium", tag === t ? "bg-brand-500 text-white" : "bg-muted text-ink-soft hover:bg-brand-50")}>
+                <button key={t} type="button" aria-pressed={tag === t} onClick={() => resetPage(setTag)(tag === t ? null : t)} className={cn("rounded-full px-2.5 py-1 text-xs font-medium", tag === t ? "bg-brand-500 text-white" : "bg-muted text-ink-soft hover:bg-brand-50")}>
                   {t}
                 </button>
               ))}
+              {tags.data?.length === 0 && <p className="text-xs text-ink-muted">Ajoutez des tags depuis le détail d'un média pour les retrouver ici.</p>}
             </div>
           </section>
         </aside>
@@ -145,31 +299,62 @@ export default function MediaPage() {
           onDrop={onDrop}
         >
           <div className="border-b border-border px-5 pt-2">
-            <FilterTabs label="Type de média" value={tab} onChange={setTab} items={TABS} />
+            <FilterTabs label="Type de média" value={tab} onChange={resetPage(setTab)} items={TABS} />
           </div>
 
-          <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-3 p-5 xl:flex-row xl:items-center">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un média…" className="pl-10" aria-label="Rechercher un média" />
+              <Input value={search} onChange={(e) => resetPage(setSearch)(e.target.value)} placeholder="Rechercher un média…" className="pl-10" aria-label="Rechercher un média" />
             </div>
-            {tag && (
-              <Button variant="secondary" size="sm" onClick={() => setTag(null)}>
-                #{tag} <X />
-              </Button>
-            )}
-            <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Affichage">
-              <Button variant={layout === "grid" ? "secondary" : "ghost"} size="icon-sm" aria-pressed={layout === "grid"} aria-label="Grille" onClick={() => setLayout("grid")}><LayoutGrid /></Button>
-              <Button variant={layout === "list" ? "secondary" : "ghost"} size="icon-sm" aria-pressed={layout === "list"} aria-label="Liste" onClick={() => setLayout("list")}><List /></Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {tag && (
+                <Button variant="secondary" size="sm" onClick={() => resetPage(setTag)(null)} aria-label={`Retirer le filtre ${tag}`}>
+                  #{tag} <X />
+                </Button>
+              )}
+              <Select value={sortKey} onValueChange={resetPage(setSortKey)}>
+                <SelectTrigger size="sm" className="w-44" aria-label="Trier les médias"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SORTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={String(perPage)} onValueChange={(v) => resetPage(setPerPage)(Number(v))}>
+                <SelectTrigger size="sm" className="w-32" aria-label="Médias par page"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="20">20 par page</SelectItem>
+                  <SelectItem value="50">50 par page</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Affichage">
+                <Button variant={layout === "grid" ? "secondary" : "ghost"} size="icon-sm" aria-pressed={layout === "grid"} aria-label="Grille" onClick={() => setLayout("grid")}><LayoutGrid /></Button>
+                <Button variant={layout === "list" ? "secondary" : "ghost"} size="icon-sm" aria-pressed={layout === "list"} aria-label="Liste" onClick={() => setLayout("list")}><List /></Button>
+              </div>
             </div>
           </div>
+
+          <UploadQueuePanel className="mx-5 mb-4" />
 
           {selected.length > 0 && (
             <div className="mx-5 mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-brand-50 px-4 py-2.5" role="status">
               <span className="text-sm font-semibold text-brand-700">{selected.length} sélectionné(s)</span>
               <Button size="sm" variant="ghost" onClick={() => setSelected(items.map((m) => m.id))}>Tout sélectionner</Button>
-              <div className="ml-auto flex gap-2">
+              <div className="ml-auto flex flex-wrap gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setSelected([])}>Annuler</Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline"><FolderInput /> Déplacer vers</Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-y-auto">
+                    <DropdownMenuLabel>Dossier de destination</DropdownMenuLabel>
+                    <DropdownMenuItem onSelect={() => void moveSelection(null)}>Aucun dossier</DropdownMenuItem>
+                    {tree.map(({ folder, depth }) => (
+                      <DropdownMenuItem key={folder.id} onSelect={() => void moveSelection(folder.id)} style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}>
+                        <Folder /> {folder.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button size="sm" variant="destructive" onClick={() => setToDelete(selected)}><Trash2 /> Supprimer</Button>
               </div>
             </div>
@@ -184,7 +369,7 @@ export default function MediaPage() {
               <ErrorState onRetry={() => refetch()} />
             ) : items.length === 0 ? (
               filtering ? (
-                <EmptyState icon={SearchX} title="Aucun média trouvé" description="Modifiez votre recherche ou vos filtres pour afficher d'autres médias." action={<Button variant="outline" onClick={() => { setSearch(""); setTag(null); setFolderId("all"); setTab("all") }}>Effacer les filtres</Button>} />
+                <EmptyState icon={SearchX} title="Aucun média trouvé" description="Modifiez votre recherche ou vos filtres pour afficher d'autres médias." action={<Button variant="outline" onClick={() => { setSearch(""); setTag(null); setFolderId("all"); setTab("all"); setPage(1) }}>Effacer les filtres</Button>} />
               ) : (
                 <EmptyState icon={ImagePlus} title="Aucun média pour le moment" description="Importez vos photos et vidéos pour les réutiliser dans vos publications. Vous pouvez aussi les glisser ici." action={<Button onClick={() => setUploadOpen(true)}><Upload /> Importer des médias</Button>} />
               )
@@ -192,15 +377,14 @@ export default function MediaPage() {
               <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
                 {items.map((m) => {
                   const isSel = selected.includes(m.id)
-                  const busy = m.status === "uploading" || m.status === "processing"
+                  const unavailable = unavailableLabel(m)
                   return (
                     <li key={m.id} className="group relative">
-                      <button type="button" onClick={() => (selected.length ? toggle(m.id) : setPreview(m))} disabled={busy} className={cn("block w-full overflow-hidden rounded-xl text-left ring-offset-2 transition-shadow", isSel ? "ring-2 ring-brand-500" : "hover:shadow-float")} aria-label={`${m.name}${busy ? ` — ${MEDIA_STATUS[m.status].label}` : ""}`}>
+                      <button type="button" onClick={() => (selected.length ? toggle(m.id) : setPreview(m))} className={cn("block w-full overflow-hidden rounded-xl text-left ring-offset-2 transition-shadow", isSel ? "ring-2 ring-brand-500" : "hover:shadow-float")} aria-label={`${m.name}${unavailable ? ` — ${unavailable}` : ""}`}>
                         <MediaThumb media={m} className="aspect-square w-full rounded-xl" />
-                        {busy && (
-                          <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-navy-950/55 p-3 text-xs font-medium text-white">
-                            {MEDIA_STATUS[m.status].label}
-                            {m.status === "uploading" && <Progress value={m.progress ?? 0} className="h-1.5 w-3/4 bg-white/30" aria-label={`Envoi de ${m.name}`} />}
+                        {unavailable && (
+                          <span className={cn("absolute inset-x-0 bottom-0 m-1.5 rounded-lg px-2 py-1 text-center text-[11px] font-medium text-white", m.status === "failed" ? "bg-danger-600/90" : "bg-navy-950/70")}>
+                            {unavailable}
                           </span>
                         )}
                       </button>
@@ -213,7 +397,7 @@ export default function MediaPage() {
                       >
                         {isSel && <Check className="size-3.5 text-white" strokeWidth={3} />}
                       </button>
-                      <p className="mt-1.5 truncate text-xs font-medium text-ink-soft">{m.name}</p>
+                      <p className="mt-1.5 truncate text-xs font-medium text-ink-soft" title={m.name}>{m.name}</p>
                     </li>
                   )
                 })}
@@ -247,18 +431,19 @@ export default function MediaPage() {
                           <MediaThumb media={m} className="size-10 shrink-0" showMeta={false} />
                           <span className="min-w-0">
                             <span className="block truncate font-medium text-ink">{m.name}</span>
-                            <span className="block text-xs text-ink-muted">{m.durationMs ? formatDuration(m.durationMs) : m.mimeType}</span>
+                            <span className="block text-xs text-ink-muted uppercase">{m.durationMs ? formatDuration(m.durationMs) : (m.extension ?? m.mimeType)}</span>
                           </span>
                         </button>
                       </td>
                       <td className="hidden py-2 text-ink-soft sm:table-cell">{formatBytes(m.sizeBytes)}</td>
                       <td className="hidden py-2 text-ink-soft md:table-cell">{formatDate(m.createdAt)}</td>
-                      <td className="py-2"><StatusBadge meta={MEDIA_STATUS[m.status]} /></td>
+                      <td className="py-2">{m.usable || m.status !== "ready" ? <StatusBadge meta={MEDIA_STATUS[m.status]} /> : <span className="text-xs font-medium text-warning-700">En quarantaine</span>}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+            {data && <Pagination page={data.page} lastPage={data.lastPage} total={data.total} onChange={setPage} busy={isFetching} label="Pages de la médiathèque" unit={["média", "médias"]} />}
           </div>
 
           {dragging && (
@@ -269,7 +454,7 @@ export default function MediaPage() {
         </section>
       </div>
 
-      <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} folders={folderList} defaultFolder={folderId === "all" ? null : folderId} />
+      <UploadDialog key={String(uploadOpen)} open={uploadOpen} onOpenChange={setUploadOpen} folders={folderList} defaultFolder={currentFolder} antivirus={antivirus} />
       <MediaPreviewDialog media={preview ? items.find((m) => m.id === preview.id) ?? preview : null} folders={folderList} onOpenChange={(o) => !o && setPreview(null)} onDelete={(m) => setToDelete([m.id])} />
       <ConfirmDialog
         open={Boolean(toDelete)}
@@ -279,25 +464,43 @@ export default function MediaPage() {
         confirmLabel="Supprimer"
         onConfirm={confirmDelete}
       />
-      <Dialog open={folderDialog} onOpenChange={setFolderDialog}>
+      <ConfirmDialog
+        open={Boolean(folderToDelete)}
+        onOpenChange={(o) => !o && setFolderToDelete(null)}
+        title={`Supprimer le dossier « ${folderToDelete?.name ?? ""} » ?`}
+        description="Ses sous-dossiers seront aussi supprimés. Les médias qu'ils contiennent ne sont pas supprimés : ils reviennent dans « Sans dossier »."
+        confirmLabel="Supprimer le dossier"
+        onConfirm={() => {
+          const target = folderToDelete
+          if (!target) return
+          deleteFolder.mutate(target.id, {
+            onSuccess: () => {
+              toast.success("Dossier supprimé.")
+              if (folderId === target.id) resetPage(setFolderId)("all")
+            },
+            onError: onError("Le dossier n'a pas pu être supprimé."),
+          })
+          setFolderToDelete(null)
+        }}
+      />
+      <Dialog open={Boolean(folderDialog)} onOpenChange={(o) => !o && setFolderDialog(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Nouveau dossier</DialogTitle>
+            <DialogTitle>{folderDialog?.mode === "rename" ? "Renommer le dossier" : folderDialog?.parentId ? "Nouveau sous-dossier" : "Nouveau dossier"}</DialogTitle>
+            {folderDialog?.mode === "create" && folderDialog.parentId && (
+              <DialogDescription>Dans « {folderList.find((f) => f.id === folderDialog.parentId)?.name} ».</DialogDescription>
+            )}
           </DialogHeader>
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              const n = folderName.trim()
-              if (!n) return
-              createFolder.mutate(n, { onSuccess: (f) => { toast.success(`Dossier « ${f.name} » créé.`); setFolderId(f.id) } })
-              setFolderName("")
-              setFolderDialog(false)
+              submitFolder()
             }}
           >
             <Input autoFocus value={folderName} maxLength={120} onChange={(e) => setFolderName(e.target.value)} placeholder="Nom du dossier" aria-label="Nom du dossier" />
             <DialogFooter className="mt-4">
-              <Button type="button" variant="outline" onClick={() => setFolderDialog(false)}>Annuler</Button>
-              <Button type="submit" disabled={!folderName.trim()}>Créer</Button>
+              <Button type="button" variant="outline" onClick={() => setFolderDialog(null)}>Annuler</Button>
+              <Button type="submit" disabled={!folderName.trim() || createFolder.isPending || renameFolder.isPending}>{folderDialog?.mode === "rename" ? "Renommer" : "Créer"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
