@@ -27,7 +27,7 @@ export function Logo({ className, tone = "dark" }: { className?: string; tone?: 
     <span className={cn("inline-flex items-center gap-2", className)}>
       <LogoMark />
       <span className={cn("text-lg font-bold tracking-tight", tone === "dark" ? "text-ink" : "text-white")}>
-        SocialPulse
+        SoxialConnect
       </span>
     </span>
   )

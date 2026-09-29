@@ -1,6 +1,7 @@
 import heroImage from "@/assets/images/hero-640.webp"
 import type { MediaAsset, MediaFolder } from "@/types"
 import { minutesAgo } from "./helpers"
+import { POST_IMAGES } from "./postImages"
 
 export const mockFolders: MediaFolder[] = [
   { id: "f-autumn", name: "Campagne automne", parentId: null, count: 0 },
@@ -28,7 +29,7 @@ const DEFS: Def[] = [
   ["m-14", "tutoriel-planification.mp4", "video", 5, "f-youtube", ["tutoriel"], { durationMs: 642_000, width: 1920, height: 1080, mimeType: "video/mp4" }],
   ["m-15", "interview-strategie.mp4", "video", 12, "f-youtube", ["interview"], { durationMs: 2_532_000, width: 1920, height: 1080, mimeType: "video/mp4" }],
   ["m-16", "coucher-soleil-plage.jpg", "image", 3, null, ["été"]],
-  ["m-17", "logo-socialpulse.png", "image", 11, "f-brand", ["logo"], { mimeType: "image/png" }],
+  ["m-17", "logo-soxialconnect.png", "image", 11, "f-brand", ["logo"], { mimeType: "image/png" }],
 ]
 
 export const mockMedia: MediaAsset[] = [
@@ -48,6 +49,23 @@ export const mockMedia: MediaAsset[] = [
     isGif: false,
     createdAt: minutesAgo(60 * 24 * 2),
   },
+  // Photos des publications « paysage / productivité / café / voyage » (voir postImages.ts).
+  ...Object.values(POST_IMAGES).map((img, i): MediaAsset => ({
+    id: img.mediaId,
+    type: "image",
+    status: "ready",
+    name: img.fileName,
+    mimeType: "image/webp",
+    sizeBytes: img.sizeBytes,
+    width: img.width,
+    height: img.height,
+    durationMs: null,
+    folderId: null,
+    tags: img.tags,
+    preview: { kind: "image", src: img.src },
+    isGif: false,
+    createdAt: minutesAgo(60 * (26 + i * 5)),
+  })),
   ...DEFS.map(([id, name, type, thumb, folderId, tags, extra], i): MediaAsset => ({
     id,
     type,

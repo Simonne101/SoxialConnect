@@ -1,5 +1,6 @@
 import type { PlatformKey, Post, PostFormat, PostStatus, PostVariant, VariantStatus } from "@/types"
 import { at, seeded } from "./helpers"
+import { POST_IMAGES } from "./postImages"
 
 const ACCOUNT_BY_PLATFORM: Record<PlatformKey, string> = {
   facebook: "acc-fb",
@@ -68,6 +69,11 @@ const SEEDS: Seed[] = [
   { title: "Script vidéo : ma routine créative", body: "Intro : présenter la routine. Partie 1 : le matin…", platforms: ["youtube", "tiktok"], day: -2, hour: 21, status: "draft" },
   { title: "Annonce partenariat", body: "Très heureuse d'annoncer un nouveau partenariat avec…", platforms: ["linkedin"], day: -3, hour: 17, status: "draft" },
   { title: null, body: "Un petit mot pour vous remercier d'être plus de 20 000 à suivre ce compte 💜", platforms: ["instagram"], day: -6, hour: 22, status: "draft" },
+  // Publications illustrées de la section « Pourquoi SoxialConnect » (Images/sect2.png).
+  { title: "Découverte des plus beaux paysages", body: "La nature nous offre des paysages incroyables. Partagez-nous votre coin préféré 🏔️", platforms: ["instagram", "facebook", "pinterest"], day: -1, hour: 10, minute: 24, status: "published", media: [POST_IMAGES.paysage.mediaId] },
+  { title: "5 astuces pour être plus productif", body: "Découvrez nos conseils pour booster votre productivité au quotidien 💡", platforms: ["linkedin", "facebook", "x"], day: 1, hour: 14, minute: 30, status: "scheduled", media: [POST_IMAGES.productivite.mediaId] },
+  { title: "Le café, une source d'inspiration", body: "Une bonne tasse de café et tout devient possible ☕", platforms: ["instagram", "facebook"], day: 2, hour: 9, minute: 15, status: "draft", media: [POST_IMAGES.cafe.mediaId] },
+  { title: "Voyage : 10 destinations incontournables", body: "Découvrez notre sélection des meilleures destinations pour vos prochaines vacances ✈️", platforms: ["instagram", "facebook", "pinterest"], day: -2, hour: 16, minute: 45, status: "published", media: [POST_IMAGES.voyage.mediaId] },
 ]
 
 function variantStatusFor(post: Seed, platform: PlatformKey): VariantStatus {

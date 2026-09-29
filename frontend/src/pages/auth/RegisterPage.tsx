@@ -55,7 +55,7 @@ export default function RegisterPage() {
     <AuthCard
       wide
       title="Créer un compte"
-      subtitle="Rejoignez la communauté SocialPulse."
+      subtitle="Rejoignez la communauté SoxialConnect."
       footer={
         <>
           Déjà un compte ?{" "}

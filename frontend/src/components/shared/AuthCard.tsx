@@ -28,7 +28,7 @@ export function AuthCard({
   return (
     <div className={cn("w-full", wide ? "max-w-[520px]" : "max-w-[400px]", className)}>
       <div className="flex flex-col items-center text-center">
-        <Link to="/" aria-label="SocialPulse — Accueil">
+        <Link to="/" aria-label="SoxialConnect — Accueil">
           <Logo className="tiny:[&_svg]:size-7" />
         </Link>
         <h1 className="mt-4 text-2xl font-bold short:mt-3 tiny:mt-2 tiny:text-xl">{title}</h1>

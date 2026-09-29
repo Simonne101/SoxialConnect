@@ -23,7 +23,7 @@ export function Hero() {
           </h1>
           <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-ink-muted sm:text-lg lg:mx-0">
             Créez, planifiez, publiez et analysez votre contenu sur tous vos réseaux sociaux. Gagnez du temps et
-            développez votre audience avec SocialPulse.
+            développez votre audience avec SoxialConnect.
           </p>
 
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">

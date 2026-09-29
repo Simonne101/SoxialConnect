@@ -49,7 +49,7 @@ export default function SocialAccountsPage() {
         </div>
         <div className="surface-card flex items-center gap-4 p-5">
           <span className="inline-flex size-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600" aria-hidden="true"><ShieldCheck className="size-5" /></span>
-          <p className="text-xs leading-relaxed text-ink-muted">Connexions officielles uniquement. Votre mot de passe n'est jamais partagé avec SocialPulse.</p>
+          <p className="text-xs leading-relaxed text-ink-muted">Connexions officielles uniquement. Votre mot de passe n'est jamais partagé avec SoxialConnect.</p>
         </div>
       </div>
 

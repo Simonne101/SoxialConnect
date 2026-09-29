@@ -1,4 +1,4 @@
-# SocialPulse — Frontend V1
+# SoxialConnect — Frontend V1
 
 SPA React qui reproduit la maquette (`../Images/maquette.png`), avec des **données simulées**. Aucun backend n'est
 connecté : toutes les actions (publication, OAuth, upload, IA, clipping) sont simulées côté navigateur.

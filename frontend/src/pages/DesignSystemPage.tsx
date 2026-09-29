@@ -79,7 +79,7 @@ export default function DesignSystemPage() {
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-10 sm:px-6">
         <div>
           <h1 className="text-3xl font-bold">Design System</h1>
-          <p className="mt-1 text-ink-muted">Couleurs, typographie, composants et états de SocialPulse — source : maquette, tokens centralisés dans <code className="rounded bg-muted px-1.5 py-0.5 text-sm">src/index.css</code>.</p>
+          <p className="mt-1 text-ink-muted">Couleurs, typographie, composants et états de SoxialConnect — source : maquette, tokens centralisés dans <code className="rounded bg-muted px-1.5 py-0.5 text-sm">src/index.css</code>.</p>
         </div>
 
         <Block title="Couleurs principales">
@@ -100,7 +100,7 @@ export default function DesignSystemPage() {
             <ul className="space-y-3">
               {TYPE.map((t) => (
                 <li key={t.label} className="flex items-baseline justify-between gap-4 border-b border-border pb-2 last:border-none">
-                  <span className={`truncate ${t.cls}`}>SocialPulse</span>
+                  <span className={`truncate ${t.cls}`}>SoxialConnect</span>
                   <span className="shrink-0 text-xs text-ink-muted">{t.label}</span>
                 </li>
               ))}

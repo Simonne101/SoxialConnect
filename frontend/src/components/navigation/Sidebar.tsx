@@ -93,7 +93,7 @@ export function Sidebar({ mode, onNavigate }: SidebarProps) {
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className={cn("flex h-[72px] shrink-0 items-center", mode === "full" ? "px-6" : "justify-center")}>
-        <Link to="/dashboard" onClick={onNavigate} className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring" aria-label="SocialPulse — Tableau de bord">
+        <Link to="/dashboard" onClick={onNavigate} className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring" aria-label="SoxialConnect — Tableau de bord">
           {mode === "full" ? <Logo tone="light" /> : <LogoMark />}
         </Link>
       </div>

@@ -67,7 +67,7 @@ function AppShell() {
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-[290px] max-w-[85vw] border-none bg-sidebar p-0 text-sidebar-foreground" showCloseButton={false}>
           <SheetTitle className="sr-only">Menu</SheetTitle>
-          <SheetDescription className="sr-only">Navigation principale de SocialPulse</SheetDescription>
+          <SheetDescription className="sr-only">Navigation principale de SoxialConnect</SheetDescription>
           <Sidebar mode="full" onNavigate={() => setMobileOpen(false)} />
         </SheetContent>
       </Sheet>

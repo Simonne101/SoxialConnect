@@ -244,7 +244,7 @@ const PREFS: { key: keyof NotificationPreferences; label: string; description: s
   { key: "publishSuccessEmail", label: "Publication réussie", description: "Un e-mail à chaque publication en ligne." },
   { key: "videoReadyEmail", label: "Vidéo prête", description: "Un e-mail quand vos clips sont prêts." },
   { key: "weeklyReportEmail", label: "Bilan hebdomadaire", description: "Un résumé de vos statistiques chaque lundi." },
-  { key: "inAppAll", label: "Notifications dans l'application", description: "Afficher toutes les notifications dans SocialPulse." },
+  { key: "inAppAll", label: "Notifications dans l'application", description: "Afficher toutes les notifications dans SoxialConnect." },
 ]
 
 export function NotificationsPanel() {
@@ -303,7 +303,7 @@ export function PreferencesPanel() {
   const update = useUpdateMe()
   const [weekStart, setWeekStart] = useState("monday")
   return (
-    <Panel title="Préférences" description="Adaptez SocialPulse à votre façon de travailler.">
+    <Panel title="Préférences" description="Adaptez SoxialConnect à votre façon de travailler.">
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="pref-tz" className="text-[13px] font-semibold">Fuseau horaire</Label>

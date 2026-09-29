@@ -3,8 +3,6 @@ import {
   ArrowRight,
   CheckCircle2,
   BarChart3,
-  CalendarClock,
-  Clapperboard,
   Clock,
   KeyRound,
   Layers,
@@ -13,12 +11,21 @@ import {
   Send,
   Share2,
   ShieldCheck,
-  Sparkles,
   Unplug,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { LogoMark } from "@/components/brand/Logo";
+import { FeatureCarousel } from "./FeatureCarousel";
+import { FEATURES } from "./features";
+import {
+  WHY_MOBILE_SIZE,
+  WHY_MOBILE_SRC,
+  WHY_SIZE,
+  WHY_SIZES,
+  WHY_SRC,
+  WHY_SRCSET,
+} from "./whyImage";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -92,10 +99,31 @@ export function ProblemSection() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           id="probleme-title"
-          eyebrow="Pourquoi SocialPulse"
+          eyebrow="Pourquoi SoxialConnect"
           title="Publier partout ne devrait pas prendre des heures"
-          description="Chaque réseau a son application, ses formats et ses statistiques. SocialPulse réunit tout au même endroit."
+          description="Chaque réseau a son application, ses formats et ses statistiques. SoxialConnect réunit tout au même endroit."
         />
+        {/* Démonstration produit (Images/sect2.png) : hors du premier écran → chargement différé. */}
+        <picture className="mt-10 block">
+          <source
+            media="(max-width: 639px)"
+            type="image/webp"
+            srcSet={WHY_MOBILE_SRC}
+            width={WHY_MOBILE_SIZE.width}
+            height={WHY_MOBILE_SIZE.height}
+          />
+          <img
+            src={WHY_SRC}
+            srcSet={WHY_SRCSET}
+            sizes={WHY_SIZES}
+            width={WHY_SIZE.width}
+            height={WHY_SIZE.height}
+            alt="Aperçu de SoxialConnect : la page Publications avec le calendrier, les réseaux et quatre publications illustrées, à côté du tableau Analytics (portée, engagement, clics, abonnés et répartition par réseau)."
+            loading="lazy"
+            decoding="async"
+            className="mx-auto h-auto w-full max-w-[420px] sm:max-w-[1370px]"
+          />
+        </picture>
         <ul className="mt-12 grid gap-5 md:grid-cols-3">
           {VALUES.map(({ icon: Icon, title, text }) => (
             <li
@@ -122,51 +150,7 @@ export function ProblemSection() {
   );
 }
 
-// --- Fonctionnalités principales (6) ------------------------------------------------------------
-const FEATURES: {
-  icon: LucideIcon;
-  title: string;
-  text: string;
-  tone: string;
-}[] = [
-  {
-    icon: PenLine,
-    title: "Création multi-réseaux",
-    text: "Un message, une version adaptée à chaque réseau, avec aperçu avant publication.",
-    tone: "bg-brand-50 text-brand-600",
-  },
-  {
-    icon: CalendarClock,
-    title: "Calendrier & programmation",
-    text: "Planifiez à l'heure voulue et visualisez votre mois en un coup d'œil.",
-    tone: "bg-info-50 text-info-700",
-  },
-  {
-    icon: Send,
-    title: "Publication & suivi",
-    text: "Publiez en un clic et suivez le statut de chaque réseau, avec relance en cas d'échec.",
-    tone: "bg-success-50 text-success-700",
-  },
-  {
-    icon: Clapperboard,
-    title: "Médias & Video Studio",
-    text: "Une médiathèque organisée, et vos longues vidéos découpées en clips courts sous-titrés.",
-    tone: "bg-violet-50 text-violet-600",
-  },
-  {
-    icon: Sparkles,
-    title: "Assistant IA",
-    text: "Légendes, idées, hashtags et scripts vidéo, dans le ton qui vous ressemble.",
-    tone: "bg-warning-50 text-warning-700",
-  },
-  {
-    icon: BarChart3,
-    title: "Analytics",
-    text: "Impressions, portée, engagement et abonnés, comparés d'un réseau à l'autre.",
-    tone: "bg-danger-50 text-danger-700",
-  },
-];
-
+// --- Fonctionnalités principales (6) : carrousel (données dans ./features.ts) ---------------------
 export function FeaturesSection() {
   return (
     <section
@@ -181,25 +165,9 @@ export function FeaturesSection() {
           title="Tout ce qu'il faut, rien de compliqué"
           description="Les outils essentiels pour créer, publier et mesurer, pensés pour être compris dès la première utilisation."
         />
-        <ul className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map(({ icon: Icon, title, text, tone }) => (
-            <li
-              key={title}
-              className="surface-card p-6 transition-shadow hover:shadow-float"
-            >
-              <span
-                className={`inline-flex size-11 items-center justify-center rounded-xl ${tone}`}
-                aria-hidden="true"
-              >
-                <Icon className="size-5" />
-              </span>
-              <h3 className="mt-4 text-lg font-bold">{title}</h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
-                {text}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-10">
+          <FeatureCarousel items={FEATURES} label="Fonctionnalités de SoxialConnect" />
+        </div>
       </div>
     </section>
   );
@@ -238,7 +206,7 @@ const TRUST: { icon: LucideIcon; text: string }[] = [
 const FAQ = [
   {
     q: "Faut-il des compétences techniques ?",
-    a: "Non. SocialPulse a été conçu pour être utilisé sans connaissances techniques : chaque écran vous guide pas à pas.",
+    a: "Non. SoxialConnect a été conçu pour être utilisé sans connaissances techniques : chaque écran vous guide pas à pas.",
   },
   {
     q: "Quels réseaux sont pris en charge ?",
@@ -589,7 +557,7 @@ export function LandingFooter() {
         <div>
           <div className="flex items-center gap-2">
             <LogoMark />
-            <span className="text-lg font-bold text-ink">SocialPulse</span>
+            <span className="text-lg font-bold text-ink">SoxialConnect</span>
           </div>
           <p className="mt-4 max-w-xs text-sm text-ink-muted">
             Gérez tous vos réseaux sociaux depuis une seule plateforme.
@@ -627,7 +595,7 @@ export function LandingFooter() {
         ))}
       </div>
       <div className="border-t border-border py-6 text-center text-xs text-ink-muted">
-        © {YEAR} SocialPulse. Tous droits réservés.
+        © {YEAR} SoxialConnect. Tous droits réservés.
       </div>
     </footer>
   );

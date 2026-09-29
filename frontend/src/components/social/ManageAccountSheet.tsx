@@ -131,7 +131,7 @@ export function ManageAccountSheet({
         open={confirm}
         onOpenChange={setConfirm}
         title={`Déconnecter ${cfg?.name ?? ""} ?`}
-        description="SocialPulse ne pourra plus publier sur ce compte. Les publications programmées vers ce réseau échoueront. Vos publications déjà en ligne restent en place."
+        description="SoxialConnect ne pourra plus publier sur ce compte. Les publications programmées vers ce réseau échoueront. Vos publications déjà en ligne restent en place."
         confirmLabel="Déconnecter"
         onConfirm={() => {
           if (!account) return

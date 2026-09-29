@@ -48,9 +48,9 @@ export function LandingNavbar() {
       )}
     >
       <div className="mx-auto flex h-full max-w-7xl items-center gap-2 px-4 sm:px-6 lg:px-8">
-        <a href="#accueil" className="flex shrink-0 items-center gap-2 rounded-lg" aria-label="SocialPulse — Accueil">
+        <a href="#accueil" className="flex shrink-0 items-center gap-2 rounded-lg" aria-label="SoxialConnect — Accueil">
           <LogoMark />
-          <span className="hidden text-lg font-bold tracking-tight text-ink min-[440px]:inline">SocialPulse</span>
+          <span className="hidden text-lg font-bold tracking-tight text-ink min-[440px]:inline">SoxialConnect</span>
         </a>
 
         <nav aria-label="Navigation du site" className="ml-10 hidden items-center gap-1 lg:flex">
@@ -90,7 +90,7 @@ export function LandingNavbar() {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-[300px] max-w-[85vw] p-6">
           <SheetTitle className="text-left text-base">Menu</SheetTitle>
-          <SheetDescription className="sr-only">Liens du site SocialPulse</SheetDescription>
+          <SheetDescription className="sr-only">Liens du site SoxialConnect</SheetDescription>
           <nav aria-label="Navigation du site (mobile)" className="mt-2 flex flex-col gap-1">
             {[...LINKS, ...RESOURCES].map((l) => (
               <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px] font-medium text-ink hover:bg-brand-50">

@@ -68,7 +68,7 @@ export function mockAIResponse(input: AIPromptInput): { content: string; items?:
       }
     case "script":
       return {
-        content: `Script (≈ 30 s) — ${capitalizeFirst(subject)}\n\n[0-3 s] HOOK : « Voici la routine qui m'a fait gagner 5 heures par semaine. »\n[3-12 s] Étape 1 : je bloque 2 h le lundi pour écrire tous mes posts.\n[12-22 s] Étape 2 : je tourne 4 vidéos d'affilée, même tenue, même lumière.\n[22-28 s] Étape 3 : je programme tout d'un coup dans SocialPulse.\n[28-30 s] CTA : « Abonne-toi pour la suite. »`,
+        content: `Script (≈ 30 s) — ${capitalizeFirst(subject)}\n\n[0-3 s] HOOK : « Voici la routine qui m'a fait gagner 5 heures par semaine. »\n[3-12 s] Étape 1 : je bloque 2 h le lundi pour écrire tous mes posts.\n[12-22 s] Étape 2 : je tourne 4 vidéos d'affilée, même tenue, même lumière.\n[22-28 s] Étape 3 : je programme tout d'un coup dans SoxialConnect.\n[28-30 s] CTA : « Abonne-toi pour la suite. »`,
       }
     case "tone":
     default:

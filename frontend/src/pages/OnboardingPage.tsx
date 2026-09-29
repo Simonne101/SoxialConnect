@@ -179,7 +179,7 @@ export default function OnboardingPage() {
           <span className="inline-flex size-16 items-center justify-center rounded-2xl bg-brand-gradient text-white shadow-brand" aria-hidden="true">
             <PartyPopper className="size-8" />
           </span>
-          <h1 id="step-welcome" className="mt-6 text-2xl font-bold sm:text-[28px]">Bienvenue sur SocialPulse !</h1>
+          <h1 id="step-welcome" className="mt-6 text-2xl font-bold sm:text-[28px]">Bienvenue sur SoxialConnect !</h1>
           <p className="mt-2 max-w-md text-sm text-ink-muted sm:text-base">
             {connectedCount > 0
               ? `${connectedCount} réseau${connectedCount > 1 ? "x" : ""} connecté${connectedCount > 1 ? "s" : ""}. Tout est prêt pour créer votre première publication.`

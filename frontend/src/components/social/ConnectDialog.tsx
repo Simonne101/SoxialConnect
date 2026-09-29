@@ -46,10 +46,10 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
               </DialogTitle>
               <DialogDescription>
                 {done
-                  ? "Vous pouvez maintenant publier sur ce compte depuis SocialPulse."
+                  ? "Vous pouvez maintenant publier sur ce compte depuis SoxialConnect."
                   : connect.isPending
                     ? `Autorisation en cours sur ${cfg.name}…`
-                    : `Vous allez être redirigé vers ${cfg.name} pour autoriser SocialPulse.`}
+                    : `Vous allez être redirigé vers ${cfg.name} pour autoriser SoxialConnect.`}
               </DialogDescription>
             </DialogHeader>
 
@@ -80,7 +80,7 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
                 </div>
                 <p className="flex items-start gap-2 rounded-xl bg-success-50 p-3 text-xs text-success-700">
                   <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                  Connexion officielle : votre mot de passe {cfg.name} n'est jamais communiqué à SocialPulse. Vous pouvez retirer l'accès à tout moment.
+                  Connexion officielle : votre mot de passe {cfg.name} n'est jamais communiqué à SoxialConnect. Vous pouvez retirer l'accès à tout moment.
                 </p>
                 {connect.isError && (
                   <p role="alert" className="text-sm font-medium text-danger-700">
