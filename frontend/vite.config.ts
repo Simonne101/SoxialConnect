@@ -9,6 +9,15 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
+  // Développement : l'API Laravel est servie via le même port que le site (VITE_API_URL=same-origin).
+  // Le navigateur ne parle qu'à localhost:5173 : pas de CORS, pas de second port qu'un antivirus
+  // ou une extension pourrait bloquer. L'en-tête Host est conservé (URLs signées des médias).
+  server: {
+    proxy: {
+      '/api': { target: 'http://localhost:8000', changeOrigin: false },
+      '/sanctum': { target: 'http://localhost:8000', changeOrigin: false },
+    },
+  },
   build: {
     rolldownOptions: {
       output: {

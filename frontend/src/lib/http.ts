@@ -3,10 +3,12 @@
 // - protection CSRF : cookie XSRF-TOKEN obtenu via /sanctum/csrf-cookie, renvoyé dans X-XSRF-TOKEN ;
 // - erreurs normalisées { message, errors } converties en ApiError.
 
-const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "")
+const RAW_API_URL = (import.meta.env.VITE_API_URL ?? "").trim()
+/** « same-origin » : API relayée par le serveur du site (proxy Vite en dev, même domaine en production). */
+const API_URL = RAW_API_URL === "same-origin" ? "" : RAW_API_URL.replace(/\/+$/, "")
 
 /** Vrai si le frontend est branché sur le backend (sinon : données de démonstration). */
-export const isApiEnabled = API_URL !== ""
+export const isApiEnabled = RAW_API_URL !== ""
 
 export class ApiError extends Error {
   readonly status: number

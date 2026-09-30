@@ -1,0 +1,8 @@
+{
+  "name": "soxialconnect",
+  "private": true,
+  "description": "SoxialConnect — lanceur de développement (API Laravel + site React).",
+  "scripts": {
+    "dev": "node scripts/dev.mjs"
+  }
+}
