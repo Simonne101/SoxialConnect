@@ -40,8 +40,11 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
-            'after_commit' => false,
+            // retry_after > timeout le plus long d'un job (ProcessMediaJob : 300 s) : sinon un job encore
+            // en cours est redonné à un autre worker et exécuté deux fois (ADR-037).
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 360),
+            // Jobs envoyés dans une transaction : poussés seulement après sa validation (ADR-037).
+            'after_commit' => (bool) env('DB_QUEUE_AFTER_COMMIT', true),
         ],
 
         'beanstalkd' => [
@@ -68,9 +71,12 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            // retry_after > timeout le plus long d'un job (ProcessMediaJob : 300 s) : sinon un job encore
+            // en cours est redonné à un autre worker et exécuté deux fois (ADR-037).
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 360),
             'block_for' => null,
-            'after_commit' => false,
+            // Jobs envoyés dans une transaction : poussés seulement après sa validation (ADR-037).
+            'after_commit' => (bool) env('REDIS_QUEUE_AFTER_COMMIT', true),
         ],
 
         'deferred' => [

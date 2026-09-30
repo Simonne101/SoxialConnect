@@ -16,6 +16,7 @@ import type {
   VariantStatus,
 } from "@/types"
 import { ApiError, http, isApiEnabled } from "@/lib/http"
+import { browserTimezone } from "@/lib/time"
 import { uid } from "@/mocks/helpers"
 import { delay, notFound, store } from "./mockStore"
 
@@ -259,6 +260,8 @@ export async function reschedule(id: string, scheduledAt: string, lockVersion?: 
   if (isApiEnabled) {
     const res = await http.post<ApiPost>(`/content/posts/${encodeURIComponent(id)}/reschedule`, {
       scheduled_at: scheduledAt,
+      // Même règle qu'à la création : la date est choisie dans le fuseau du navigateur.
+      timezone: browserTimezone(),
       ...(lockVersion !== undefined ? { lock_version: lockVersion } : {}),
     })
     return toPost(res!.data)
@@ -268,6 +271,7 @@ export async function reschedule(id: string, scheduledAt: string, lockVersion?: 
   if (!["draft", "scheduled", "cancelled"].includes(post.status)) throw new ApiError(409, "Cette publication ne peut pas être reprogrammée.")
   if (post.variants.length === 0) throw new ApiError(422, "Choisissez au moins un réseau social avant de programmer.", { targets: ["Choisissez au moins un réseau social avant de programmer."] })
   post.scheduledAt = scheduledAt
+  post.timezone = browserTimezone()
   post.status = "scheduled"
   for (const v of post.variants) {
     v.status = "scheduled"

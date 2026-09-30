@@ -198,3 +198,14 @@ Format : Decision / Context / Reason / Consequences / Status / Date.
 - **Context** : le PHP système (`C:\Program Files\php\php.ini`) n'active pas GD et limite l'upload à 2 Mo ; sa modification demande les droits administrateur.
 - **Recommendation** : dans ce php.ini (en administrateur) : `extension=gd`, `extension=exif`, `upload_max_filesize = 100M`, `post_max_size = 110M`, `memory_limit = 256M`. Sans GD, l'application fonctionne (pas de réencodage ni de vignette, signalé dans les métadonnées) et les tests dépendant de GD sont ignorés.
 - **Status** : Open (décision du porteur de projet) — 2026-09-29
+
+### ADR-036 — Content : variantes préservées à la modification, suppressions ordonnées
+- **Context** : `SavePost` supprimait puis recréait toutes les variantes et tous les liens médias à chaque enregistrement : identifiants changés, historique `publication_attempts` perdu (cascade), et cascade vers `post_media` (colonne générée virtuelle indexée, cf. ADR-034).
+- **Decision** : synchronisation sans recréation. Appariement par (compte social, format), puis par compte seul si le format change : la variante est mise à jour sur place et garde son identifiant. Seules les cibles retirées sont supprimées, via `OrderedDeletion::variants()` (médias propres à la variante → tentatives → variante), sans action référentielle. Les liens médias communs sont ajoutés, retirés ou réordonnés par requêtes ciblées (jamais de `save()` complet sur `post_media`, qui tenterait d'écrire `post_variant_key`). Changer de cycle (brouillon ↔ programmation) efface l'erreur courante de la variante ; l'historique reste dans les tentatives. Deux cibles identiques (compte + format) sont refusées en 422.
+- **Limite** : la suppression définitive d'un post ou d'un compte utilisateur passerait encore par des cascades ; aucune fonctionnalité ne le fait aujourd'hui (posts : suppression logique). À traiter avec la purge et la suppression de compte.
+- **Status** : Accepted — 2026-09-29
+
+### ADR-037 — File d'attente : retry_after et after_commit
+- **Decision** : connexions `redis` et `database` : `retry_after = 360` s (supérieur au timeout le plus long, `ProcessMediaJob` = 300 s ; sinon un job encore en cours est redonné à un autre worker et exécuté deux fois) et `after_commit = true` (un job envoyé dans une transaction n'est poussé qu'après sa validation). Surchargeables par `REDIS_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_AFTER_COMMIT` (et `DB_QUEUE_*`). Un test (`QueueSafetyTest`) vérifie la règle pour chaque job déclaré.
+- **Exploitation** : les workers gardent le code chargé : `php artisan queue:restart` après chaque changement de code ou de configuration.
+- **Status** : Accepted — 2026-09-29

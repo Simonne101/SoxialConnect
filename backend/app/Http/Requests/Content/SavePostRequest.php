@@ -103,6 +103,15 @@ class SavePostRequest extends FormRequest
                 if ($this->input('mode') === 'schedule' && blank($this->input('body')) && empty($this->input('media_ids'))) {
                     $validator->errors()->add('body', 'Ajoutez un texte ou un média.');
                 }
+                // Une seule variante par compte et par format (contrainte unique post_variants).
+                $seen = [];
+                foreach ((array) $this->input('targets', []) as $i => $target) {
+                    $key = ($target['social_account_id'] ?? '').'|'.($target['format'] ?? '');
+                    if (isset($seen[$key])) {
+                        $validator->errors()->add("targets.{$i}.social_account_id", 'Ce réseau est déjà ciblé avec ce format.');
+                    }
+                    $seen[$key] = true;
+                }
             },
         ];
     }
