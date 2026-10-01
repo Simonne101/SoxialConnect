@@ -3,6 +3,8 @@ import { lazy } from "react"
 // Chaque page est un chunk séparé (code splitting) chargé à la navigation.
 export const LandingPage = lazy(() => import("@/pages/LandingPage"))
 export const LegalPage = lazy(() => import("@/pages/LegalPage"))
+export const TermsPage = lazy(() => import("@/pages/TermsPage"))
+export const PrivacyPage = lazy(() => import("@/pages/PrivacyPage"))
 export const LoginPage = lazy(() => import("@/pages/auth/LoginPage"))
 export const RegisterPage = lazy(() => import("@/pages/auth/RegisterPage"))
 export const ForgotPasswordPage = lazy(() => import("@/pages/auth/ForgotPasswordPage"))
