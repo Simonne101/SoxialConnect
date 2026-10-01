@@ -10,3 +10,7 @@ Artisan::command('inspire', function () {
 
 // Purge physique des médias supprimés depuis plus de config('media.purge_after_days') jours.
 Schedule::command('media:purge-deleted')->dailyAt('03:30')->withoutOverlapping();
+
+// Publication : mise en file des publications programmées arrivées à échéance + reprise des
+// envois bloqués (docs/publishing.md §3). onOneServer : un seul passage si plusieurs serveurs.
+Schedule::command('publishing:dispatch-due')->everyMinute()->withoutOverlapping(5)->onOneServer();

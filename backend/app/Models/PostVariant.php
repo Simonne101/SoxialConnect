@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /** Déclinaison d'une publication pour un compte social : l'unité de publication. */
 class PostVariant extends Model
@@ -17,7 +18,7 @@ class PostVariant extends Model
 
     protected $fillable = ['social_account_id', 'body', 'format', 'options', 'scheduled_at'];
 
-    protected $attributes = ['status' => 'draft'];
+    protected $attributes = ['status' => 'draft', 'attempts_count' => 0];
 
     protected function casts(): array
     {
@@ -26,6 +27,8 @@ class PostVariant extends Model
             'status' => VariantStatus::class,
             'options' => 'array',
             'scheduled_at' => 'datetime',
+            'queued_at' => 'datetime',
+            'attempts_count' => 'integer',
             'published_at' => 'datetime',
         ];
     }
@@ -43,5 +46,11 @@ class PostVariant extends Model
     public function attempts(): HasMany
     {
         return $this->hasMany(PublicationAttempt::class);
+    }
+
+    /** Dernière tentative (numéro le plus élevé). */
+    public function latestAttempt(): HasOne
+    {
+        return $this->hasOne(PublicationAttempt::class)->ofMany('attempt_number', 'max');
     }
 }

@@ -27,6 +27,9 @@ enum AuditAction: string
     case PostScheduled = 'POST_SCHEDULED';
     case PostPublished = 'POST_PUBLISHED';
     case PostCancelled = 'POST_CANCELLED';
+    case PublishRequested = 'POST_PUBLISH_REQUESTED';
+    case PublishRetried = 'POST_PUBLISH_RETRIED';
+    case PublishFailed = 'POST_PUBLISH_FAILED';
     case MediaUploaded = 'MEDIA_UPLOADED';
     case MediaDeleted = 'MEDIA_DELETED';
     case MediaRejected = 'MEDIA_REJECTED';

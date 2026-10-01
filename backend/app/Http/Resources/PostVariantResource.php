@@ -18,8 +18,11 @@ class PostVariantResource extends JsonResource
             'options' => $this->options ?? (object) [],
             'status' => $this->status->value,
             'scheduled_at' => $this->scheduled_at?->toIso8601String(),
+            'queued_at' => $this->queued_at?->toIso8601String(),
             'published_at' => $this->published_at?->toIso8601String(),
             'external_url' => $this->external_url,
+            'attempts_count' => $this->attempts_count ?? 0,
+            'error_code' => $this->last_error_code,
             'error_message' => $this->last_error_message,
         ];
     }

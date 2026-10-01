@@ -7,6 +7,7 @@ export const qk = {
     list: (f: PostFilters) => ["posts", "list", f] as const,
     range: (f: PostFilters) => ["posts", "range", f] as const,
     detail: (id: string) => ["posts", "detail", id] as const,
+    attempts: (id: string) => ["posts", "attempts", id] as const,
   },
   socialAccounts: ["social-accounts"] as const,
   media: {

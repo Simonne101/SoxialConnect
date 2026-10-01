@@ -209,3 +209,31 @@ Format : Decision / Context / Reason / Consequences / Status / Date.
 - **Decision** : connexions `redis` et `database` : `retry_after = 360` s (supérieur au timeout le plus long, `ProcessMediaJob` = 300 s ; sinon un job encore en cours est redonné à un autre worker et exécuté deux fois) et `after_commit = true` (un job envoyé dans une transaction n'est poussé qu'après sa validation). Surchargeables par `REDIS_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_AFTER_COMMIT` (et `DB_QUEUE_*`). Un test (`QueueSafetyTest`) vérifie la règle pour chaque job déclaré.
 - **Exploitation** : les workers gardent le code chargé : `php artisan queue:restart` après chaque changement de code ou de configuration.
 - **Status** : Accepted — 2026-09-29
+
+### ADR-038 — Moteur de publication interne : variante, jeton de tentative, appel hors transaction
+- **Context** : publier (maintenant, à l'heure prévue, en relance) sans double envoi, sans variante bloquée et sans succès inventé, avant toute intégration OAuth.
+- **Decision** : un service unique (`PublishingService`) réutilisé par l'API, le job, le planificateur et une future CLI. Unité de publication : la variante ; statut du post agrégé. Transitions conditionnelles (`VariantStateMachine`) ; `post_variants.attempts_count` sert de jeton aux jobs (un job périmé ou dupliqué ne fait rien) ; verrous toujours post puis variante ; une ligne `publication_attempts` par envoi, jamais écrasée ; adaptateur appelé hors transaction. Job `$tries = 1`, `$timeout = 120`, `$failOnTimeout` : les nouveaux essais (erreurs temporaires uniquement, backoff 60/300/900 s, 3 au maximum) sont décidés par le moteur, jamais par la file. Résultat inconnu (exception, worker tué) : échec explicite, relance soumise à confirmation. Détails : [publishing.md](publishing.md).
+- **Status** : Accepted — 2026-09-30
+
+### ADR-039 — Adaptateur par défaut NotConfiguredPublisher
+- **Decision** : `config/publishing.php` → `adapters` est vide. Toute plateforme sans adaptateur déclaré utilise `NotConfiguredPublisher` : aucun appel réseau, aucun token lu, résultat `NOT_CONFIGURED` (non relançable automatiquement), message « Rien n'a été publié ». Le frontend active « Publier maintenant » et « Réessayer », et la démonstration hors API ne simule plus de succès : elle reproduit ce même échec.
+- **Conséquence** : aucun post ne peut atteindre `published` tant qu'un adaptateur officiel n'est pas livré (phase Social Connectors).
+- **Status** : Accepted — 2026-09-30
+
+### ADR-040 — Planificateur : SKIP LOCKED et reprise après incident
+- **Decision** : `publishing:dispatch-due` chaque minute (`withoutOverlapping`, `onOneServer`) ; sélection des posts dus par lots `FOR UPDATE SKIP LOCKED` ; reprise des variantes bloquées en `publishing` (→ échec au résultat inconnu) ou en `queued` sans job (→ job renvoyé, déclencheur `recovery`). En local, `npm run dev` lance `schedule:work` et un worker `queue:work redis --queue=publishing,default,media`. Hors lanceur sous Windows : tâche planifiée `schedule:run` chaque minute + worker sous gestionnaire de services.
+- **Status** : Accepted — 2026-09-30
+
+### ADR-041 — YouTube : premier connecteur réel
+- **Decision** :
+  - OAuth Google côté serveur (authorization code + PKCE S256).
+  - `state` aléatoire à usage unique (10 min), stocké en cache sous son empreinte et lié à l'utilisateur authentifié.
+  - Connexion lancée par `POST /api/v1/social/youtube/connect` : session et CSRF de la SPA, réponse = URL Google.
+  - Callback sur une **route web** `/oauth/youtube/callback` : la session y est disponible ; en local, relayée par Vite comme `/api`.
+  - Tokens dans `social_tokens`, avec le chiffrement existant (ADR-008).
+  - Pas de table `social_connections` : option B de l'ADR-019, déjà reflétée par le schéma. Une autorisation Google = une chaîne.
+  - `YouTubePublisher` implémente `SocialPublisher` et est déclaré dans `config/publishing.php`.
+  - `PublishRequest` reçoit un champ optionnel `title` ; le contrat `SocialPublisher` est inchangé.
+  - Upload reprenable, lu en flux depuis le stockage privé. `privacyStatus` forcé à `private` pendant cette phase.
+  - Timeout du job porté à 300 s (inférieur à `retry_after`).
+- **Status** : Accepted — 2026-09-30 (test réel en attente des identifiants Google)

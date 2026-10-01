@@ -29,6 +29,15 @@ return Application::configure(basePath: dirname(__DIR__))
         // Limite générale de l'API (limiteur « api », docs/security.md §12).
         $middleware->throttleApi();
 
+        // Proxies de confiance : par défaut UNIQUEMENT le proxy local (serveur Vite en développement,
+        // Nginx sur la même machine en production). Ses en-têtes X-Forwarded-* (dont Proto: https
+        // derrière un tunnel HTTPS) sont alors pris en compte ; jamais ceux d'une autre adresse.
+        // (env() : le fichier de configuration n'est pas encore chargé à ce stade.)
+        $middleware->trustProxies(at: array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) (env('TRUSTED_PROXIES') ?: '127.0.0.1,::1')),
+        ), fn (string $ip) => $ip !== '' && $ip !== '*' && $ip !== '**')));
+
         $middleware->prepend(AssignRequestId::class);
         $middleware->append(SecurityHeaders::class);
         $middleware->api(prepend: [RejectMalformedJson::class]);

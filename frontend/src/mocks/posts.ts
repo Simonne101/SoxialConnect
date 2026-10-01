@@ -117,7 +117,9 @@ export const mockPosts: Post[] = SEEDS.map((s, index) => {
       scheduledAt: s.status === "draft" ? null : when,
       publishedAt: status === "published" ? when : null,
       externalUrl: status === "published" ? "#" : null,
+      errorCode: null,
       errorMessage: status === "failed" ? (s.error ?? "La plateforme a refusé la publication.") : null,
+      attemptsCount: status === "published" || status === "failed" ? 1 : 0,
     }
   })
   const impressions = Math.round(1500 + rand() * 18000)

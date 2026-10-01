@@ -10,18 +10,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useConnectAccount } from "@/hooks/queries/social"
+import { useConnectAccount, useStartOAuth } from "@/hooks/queries/social"
 import { FeatureUnavailableError } from "@/lib/features"
+import { apiErrorMessage } from "@/lib/http"
+import { supportsOAuth } from "@/services/socialAccounts"
 import { PLATFORMS } from "@/lib/platforms"
 import type { SocialAccount } from "@/types"
 
 /**
- * Connexion simulée. Flux réel prévu (docs/security.md §6) : redirection vers la page de
- * consentement officielle de la plateforme (state + PKCE), callback serveur, tokens chiffrés
- * côté Laravel. Aucun token ne transite par le navigateur.
+ * Connexion d'un réseau (docs/security.md §6).
+ * - Réseaux livrés (YouTube, backend branché) : redirection vers la page de consentement
+ *   officielle (state + PKCE), callback Laravel, tokens chiffrés côté serveur. Le retour
+ *   arrive sur /social-accounts?oauth=… (message affiché par la page).
+ * - Démonstration (sans backend) : connexion simulée. Autres réseaux : refus explicite.
+ * Aucun token ne transite par le navigateur.
  */
 export function ConnectDialog({ account, onOpenChange }: { account: SocialAccount | null; onOpenChange: (o: boolean) => void }) {
-  const connect = useConnectAccount()
+  const demoConnect = useConnectAccount()
+  const oauth = useStartOAuth()
+  const real = account ? supportsOAuth(account.platform) : false
+  const connect = real ? oauth : demoConnect
   const [done, setDone] = useState<SocialAccount | null>(null)
   const cfg = account ? PLATFORMS[account.platform] : null
   const reconnect = account && account.status !== "disconnected"
@@ -29,7 +37,8 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
   const close = (o: boolean) => {
     if (!o) {
       setDone(null)
-      connect.reset()
+      demoConnect.reset()
+      oauth.reset()
     }
     onOpenChange(o)
   }
@@ -56,7 +65,7 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
             {connect.isPending && (
               <div className="flex flex-col items-center gap-3 py-6" role="status">
                 <LoaderCircle className="size-8 animate-spin text-brand-500" aria-hidden="true" />
-                <p className="text-sm text-ink-muted">Simulation de la page d'autorisation officielle…</p>
+                <p className="text-sm text-ink-muted">{real ? `Redirection vers ${cfg.name}…` : "Simulation de la page d'autorisation officielle…"}</p>
               </div>
             )}
 
@@ -84,7 +93,7 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
                 </p>
                 {connect.isError && (
                   <p role="alert" className="text-sm font-medium text-danger-700">
-                    {connect.error instanceof FeatureUnavailableError ? connect.error.message : "La connexion a échoué. Réessayez dans un instant."}
+                    {connect.error instanceof FeatureUnavailableError ? connect.error.message : apiErrorMessage(connect.error, "La connexion a échoué. Réessayez dans un instant.")}
                   </p>
                 )}
               </div>
@@ -108,7 +117,10 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
               ) : (
                 <>
                   <Button variant="outline" onClick={() => close(false)} disabled={connect.isPending}>Annuler</Button>
-                  <Button disabled={connect.isPending} onClick={() => connect.mutate(account.id, { onSuccess: (a) => setDone(a as SocialAccount) })}>
+                  <Button
+                    disabled={connect.isPending}
+                    onClick={() => (real ? oauth.mutate(account.platform) : demoConnect.mutate(account.id, { onSuccess: (a) => setDone(a as SocialAccount) }))}
+                  >
                     Continuer vers {cfg.name} <ExternalLink />
                   </Button>
                 </>

@@ -6,16 +6,19 @@ use App\Domain\Content\Enums\PostStatus;
 use App\Domain\Content\Enums\VariantStatus;
 use App\Domain\Content\Exceptions\PostConflict;
 use App\Domain\Content\Support\PostLock;
+use App\Domain\Publishing\PostStatusAggregator;
 use App\Models\Post;
+use App\Models\PostVariant;
 use App\Models\User;
 use App\Services\Audit\AuditAction;
 use App\Services\Audit\AuditLogger;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Annule la programmation d'une publication avant toute publication (docs/database.md §3.3 :
- * statut « cancelled »). La date prévue est conservée pour l'historique et le calendrier ;
- * la publication reste modifiable et peut être reprogrammée. Aucun appel aux réseaux sociaux.
+ * Annule une publication programmée ou en file d'attente avant son envoi (docs/database.md §3.3,
+ * docs/publishing.md §2). Refusé si une variante est en cours d'envoi (résultat attendu).
+ * La date prévue est conservée pour l'historique et le calendrier ; la publication reste
+ * modifiable et peut être reprogrammée. Aucun appel aux réseaux sociaux.
  */
 final class CancelPost
 {
@@ -25,15 +28,26 @@ final class CancelPost
     {
         $post = DB::transaction(function () use ($post, $expectedVersion) {
             $locked = PostLock::acquire($post, $expectedVersion);
-            if ($locked->status !== PostStatus::Scheduled) {
+            if (! in_array($locked->status, [PostStatus::Scheduled, PostStatus::Processing], true)) {
                 throw PostConflict::notCancellable();
             }
 
-            $locked->variants()
-                ->whereIn('status', [VariantStatus::Scheduled->value, VariantStatus::Draft->value])
+            // Variantes verrouillées après le post (même ordre que le moteur de publication).
+            $variants = $locked->variants()->lockForUpdate()->get();
+            if ($variants->contains(fn ($v) => $v->status === VariantStatus::Publishing)) {
+                throw PostConflict::publishingInProgress();
+            }
+            $cancellable = $variants->filter(fn ($v) => in_array($v->status, [VariantStatus::Scheduled, VariantStatus::Queued, VariantStatus::Draft], true));
+            if ($cancellable->isEmpty()) {
+                throw PostConflict::notCancellable();
+            }
+
+            // Un job déjà en file pour une variante annulée ne fera rien (le moteur vérifie le statut).
+            PostVariant::query()->whereKey($cancellable->modelKeys())
                 ->update(['status' => VariantStatus::Cancelled->value, 'updated_at' => now()]);
 
-            $locked->status = PostStatus::Cancelled;
+            $statuses = PostVariant::query()->where('post_id', $locked->id)->get(['status'])->pluck('status')->all();
+            $locked->status = PostStatusAggregator::aggregate($statuses, PostStatus::Cancelled);
             $locked->lock_version++;
             $locked->save();
 

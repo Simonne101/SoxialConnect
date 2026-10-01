@@ -7,13 +7,17 @@ use App\Domain\Content\Actions\DuplicatePost;
 use App\Domain\Content\Actions\ReschedulePost;
 use App\Domain\Content\Actions\SavePost;
 use App\Domain\Content\Enums\PostStatus;
+use App\Domain\Publishing\PublishingService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Content\IndexPostsRequest;
 use App\Http\Requests\Content\PostVersionRequest;
 use App\Http\Requests\Content\ReschedulePostRequest;
+use App\Http\Requests\Content\RetryPostRequest;
 use App\Http\Requests\Content\SavePostRequest;
 use App\Http\Resources\PostResource;
+use App\Http\Resources\PublicationAttemptResource;
 use App\Models\Post;
+use App\Models\PublicationAttempt;
 use App\Support\Http\ApiResponse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -21,7 +25,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * /api/v1/content/posts — publications (sans publication réelle : phases Scheduler et Publishing).
+ * /api/v1/content/posts — publications. L'envoi passe par le moteur interne (PublishingService) ;
+ * sans intégration officielle active, chaque envoi échoue explicitement (NOT_CONFIGURED).
  * Ordre : Authentification (middleware) → Autorisation (Policy) → Validation (FormRequest) → Domaine (Actions).
  */
 class PostController extends Controller
@@ -117,5 +122,43 @@ class PostController extends Controller
         );
 
         return ApiResponse::ok(new PostResource($post), 'Publication programmée.');
+    }
+
+    /** « Publier maintenant » : mise en file immédiate ; le résultat arrive via le job de publication. */
+    public function publish(PostVersionRequest $request, Post $post, PublishingService $publishing): JsonResponse
+    {
+        Gate::authorize('update', $post);
+        $post = $publishing->publishNow($request->user(), $post, $request->has('lock_version') ? $request->integer('lock_version') : null);
+
+        return ApiResponse::ok(new PostResource($post), "Publication en file d'attente.");
+    }
+
+    /** « Réessayer » : nouvelle tentative pour les variantes en échec (historique conservé). */
+    public function retry(RetryPostRequest $request, Post $post, PublishingService $publishing): JsonResponse
+    {
+        Gate::authorize('update', $post);
+        $post = $publishing->retry(
+            $request->user(),
+            $post,
+            $request->has('lock_version') ? $request->integer('lock_version') : null,
+            $request->boolean('confirm_unknown'),
+        );
+
+        return ApiResponse::ok(new PostResource($post), "Nouvelle tentative en file d'attente.");
+    }
+
+    /** Historique des tentatives de publication, de la plus récente à la plus ancienne. */
+    public function attempts(Post $post): JsonResponse
+    {
+        Gate::authorize('view', $post);
+
+        $attempts = PublicationAttempt::query()
+            ->whereIn('post_variant_id', $post->variants()->select('id'))
+            ->orderByDesc('started_at')
+            ->orderByDesc('attempt_number')
+            ->limit(200)
+            ->get();
+
+        return ApiResponse::ok(PublicationAttemptResource::collection($attempts));
     }
 }

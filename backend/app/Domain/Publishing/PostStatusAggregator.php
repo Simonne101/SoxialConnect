@@ -30,6 +30,9 @@ final class PostStatusAggregator
             $all(VariantStatus::Failed) => PostStatus::Failed,
             $any(VariantStatus::Published) && $any(VariantStatus::Failed) => PostStatus::PartiallyPublished,
             $any(VariantStatus::Scheduled) => PostStatus::Scheduled,
+            // Variantes annulées mêlées à des variantes terminées (annulation d'une partie de l'envoi).
+            $any(VariantStatus::Published) => PostStatus::PartiallyPublished,
+            $any(VariantStatus::Failed) => PostStatus::Failed,
             default => $fallback,
         };
     }

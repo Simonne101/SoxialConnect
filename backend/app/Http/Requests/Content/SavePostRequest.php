@@ -21,7 +21,7 @@ use Illuminate\Validation\Rule;
 class SavePostRequest extends FormRequest
 {
     /** Clés d'options autorisées par variante (docs/api-integration.md ; types frontend VariantOptions). */
-    private const OPTION_KEYS = 'title,description,hashtags,destinationUrl,board,privacy,allowComments,allowDuet,allowStitch,commercialContent,youtubeVisibility,madeForKids,coverMediaId,thumbnailMediaId,firstComment,accountEntityId';
+    private const OPTION_KEYS = 'title,description,hashtags,destinationUrl,board,privacy,allowComments,allowDuet,allowStitch,commercialContent,brandOrganic,brandContent,youtubeVisibility,madeForKids,coverMediaId,thumbnailMediaId,firstComment,accountEntityId';
 
     /**
      * Autorisation AVANT validation : une mise à jour du post d'un autre compte répond 404,
@@ -81,6 +81,13 @@ class SavePostRequest extends FormRequest
             'targets.*.options.title' => ['sometimes', 'nullable', 'string', 'max:120'],
             'targets.*.options.privacy' => ['sometimes', 'nullable', Rule::in(['public', 'followers', 'friends', 'private'])],
             'targets.*.options.youtubeVisibility' => ['sometimes', 'nullable', Rule::in(['public', 'unlisted', 'private'])],
+            // TikTok (Content Sharing Guidelines) : interactions et contenu commercial explicites.
+            'targets.*.options.allowComments' => ['sometimes', 'boolean'],
+            'targets.*.options.allowDuet' => ['sometimes', 'boolean'],
+            'targets.*.options.allowStitch' => ['sometimes', 'boolean'],
+            'targets.*.options.commercialContent' => ['sometimes', 'boolean'],
+            'targets.*.options.brandOrganic' => ['sometimes', 'boolean'],
+            'targets.*.options.brandContent' => ['sometimes', 'boolean'],
         ];
     }
 

@@ -31,6 +31,19 @@ export function usePost(id: string | undefined) {
     enabled: Boolean(id),
     // Une publication introuvable (404) ne se réessaie pas.
     retry: false,
+    // Envoi en cours : le statut est rafraîchi jusqu'au résultat du worker.
+    refetchInterval: (query) => (query.state.data?.status === "processing" ? 1500 : false),
+  })
+}
+
+/** Historique des tentatives d'envoi (rafraîchi tant que la publication est en cours). */
+export function usePostAttempts(id: string | undefined, processing = false) {
+  return useQuery({
+    queryKey: qk.posts.attempts(id ?? ""),
+    queryFn: () => posts.listAttempts(id as string),
+    enabled: Boolean(id),
+    retry: false,
+    refetchInterval: processing ? 1500 : false,
   })
 }
 
@@ -80,5 +93,8 @@ export function useReschedule() {
 
 export function useRetryPost() {
   const invalidate = useInvalidatePosts()
-  return useMutation({ mutationFn: posts.retryFailed, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: (v: { id: string; lockVersion?: number; confirmUnknown?: boolean }) => posts.retryFailed(v.id, v.lockVersion, v.confirmUnknown),
+    onSettled: invalidate,
+  })
 }

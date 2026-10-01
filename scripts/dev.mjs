@@ -1,6 +1,7 @@
 // Lanceur de développement SoxialConnect : `npm run dev` depuis la racine du projet.
-// 1. vérifie MySQL et Redis (Laragon) ; 2. démarre l'API Laravel (localhost:8000) ;
-// 3. démarre le site React (localhost:5173) ; 4. ouvre le navigateur. Ctrl + C arrête tout.
+// 1. vérifie MySQL et Redis (Laragon) ; 2. démarre l'API Laravel (localhost:8000), le worker de
+// file d'attente (publication, médias) et le planificateur ; 3. démarre le site React
+// (localhost:5173) ; 4. ouvre le navigateur. Ctrl + C arrête tout.
 // Aucune dépendance : uniquement Node.js.
 import { spawn, spawnSync } from 'node:child_process'
 import net from 'node:net'
@@ -14,7 +15,7 @@ const APP_URL = 'http://localhost:5173'
 const API_URL = 'http://localhost:8000/api/v1/health'
 const isWindows = process.platform === 'win32'
 
-const color = { api: '\x1b[35m', web: '\x1b[36m', info: '\x1b[32m', warn: '\x1b[33m', err: '\x1b[31m', reset: '\x1b[0m' }
+const color = { api: '\x1b[35m', web: '\x1b[36m', worker: '\x1b[34m', cron: '\x1b[90m', info: '\x1b[32m', warn: '\x1b[33m', err: '\x1b[31m', reset: '\x1b[0m' }
 const say = (tag, text, c = color.info) => console.log(`${c}[${tag}]${color.reset} ${text}`)
 
 const portOpenOn = (host, port) => new Promise((resolve) => {
@@ -99,7 +100,18 @@ process.on('SIGTERM', () => stop(0))
 
 say('info', 'Démarrage de l\'API (http://localhost:8000)…')
 // Réglages PHP du projet (GD, limites d'upload, OPcache) sans toucher au php.ini système.
-run('api', 'php', ['artisan', 'serve', '--host=localhost', '--port=8000'], backend, { PHP_INI_SCAN_DIR: path.join(backend, 'dev') })
+const phpEnv = { PHP_INI_SCAN_DIR: path.join(backend, 'dev') }
+run('api', 'php', ['artisan', 'serve', '--host=localhost', '--port=8000'], backend, phpEnv)
+
+// Worker SoxialConnect : files « publishing » (moteur de publication), « default » et « media ».
+// --timeout inférieur à retry_after (360 s) ; chaque job fixe lui-même ses tentatives.
+say('info', 'Démarrage du worker de file d\'attente (publication, médias)…')
+run('worker', 'php', ['artisan', 'queue:work', 'redis', '--queue=publishing,default,media', '--sleep=1', '--timeout=300'], backend, phpEnv)
+
+// Planificateur Laravel (chaque minute) : publications programmées arrivées à échéance, reprise
+// des envois bloqués, purge des médias supprimés (03:30).
+say('info', 'Démarrage du planificateur…')
+run('cron', 'php', ['artisan', 'schedule:work'], backend, phpEnv)
 
 say('info', 'Démarrage du site (http://localhost:5173)…')
 run('web', 'npm', ['run', 'dev', '--', '--port', '5173', '--strictPort', '--host', 'localhost'], frontend)

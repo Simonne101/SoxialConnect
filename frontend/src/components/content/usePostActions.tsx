@@ -10,7 +10,8 @@ import {
   useRetryPost,
 } from "@/hooks/queries/content"
 import { features, PUBLISHING_UNAVAILABLE } from "@/lib/features"
-import { apiErrorMessage } from "@/lib/http"
+import { ApiError, apiErrorMessage } from "@/lib/http"
+import { UNKNOWN_OUTCOME_HINT } from "@/services/posts"
 import type { Post } from "@/types"
 import { ScheduleDialog } from "./ScheduleDialog"
 import { postTitle } from "./postUtils"
@@ -32,6 +33,7 @@ export function usePostActions(onDone?: () => void) {
   const navigate = useNavigate()
   const [toDelete, setToDelete] = useState<Post | null>(null)
   const [toSchedule, setToSchedule] = useState<Post | null>(null)
+  const [toConfirmRetry, setToConfirmRetry] = useState<Post | null>(null)
   const del = useDeletePost()
   const dup = useDuplicatePost()
   const cancel = useCancelSchedule()
@@ -51,7 +53,9 @@ export function usePostActions(onDone?: () => void) {
         { id: post.id, lockVersion: post.lockVersion },
         {
           onSuccess: () => {
-            toast.success("Programmation annulée. Vous pouvez la reprogrammer à tout moment.")
+            toast.success(post.status === "processing"
+              ? "Envoi annulé. Rien n'a été publié ; vous pouvez la reprogrammer à tout moment."
+              : "Programmation annulée. Vous pouvez la reprogrammer à tout moment.")
             onDone?.()
           },
           onError: onError("L'annulation a échoué. Réessayez."),
@@ -63,9 +67,16 @@ export function usePostActions(onDone?: () => void) {
         toast.info(`${PUBLISHING_UNAVAILABLE}.`)
         return
       }
-      retry.mutate(post.id, {
-        onSuccess: () => toast.info("Nouvelle tentative de publication en cours…"),
-        onError: onError("La nouvelle tentative a échoué."),
+      retry.mutate({ id: post.id, lockVersion: post.lockVersion }, {
+        onSuccess: () => toast.info("Nouvelle tentative en file d'attente…"),
+        onError: (error) => {
+          // Résultat inconnu de la dernière tentative : confirmation explicite (risque de doublon).
+          if (error instanceof ApiError && error.status === 409 && error.message.includes(UNKNOWN_OUTCOME_HINT)) {
+            setToConfirmRetry(post)
+            return
+          }
+          onError("La nouvelle tentative n'a pas pu être lancée.")(error)
+        },
       })
     },
   }
@@ -88,6 +99,21 @@ export function usePostActions(onDone?: () => void) {
             onError: onError("La suppression a échoué. Réessayez."),
           })
           setToDelete(null)
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(toConfirmRetry)}
+        onOpenChange={(o) => !o && setToConfirmRetry(null)}
+        title="Relancer malgré un résultat inconnu ?"
+        description="La dernière tentative a été interrompue pendant l'envoi : vérifiez sur le réseau que rien n'a été publié avant de relancer, pour éviter un doublon."
+        confirmLabel="Relancer"
+        onConfirm={() => {
+          if (!toConfirmRetry) return
+          retry.mutate({ id: toConfirmRetry.id, confirmUnknown: true }, {
+            onSuccess: () => toast.info("Nouvelle tentative en file d'attente…"),
+            onError: onError("La nouvelle tentative n'a pas pu être lancée."),
+          })
+          setToConfirmRetry(null)
         }}
       />
       {toSchedule && (

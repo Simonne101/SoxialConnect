@@ -160,7 +160,7 @@ export default function ComposerPage() {
         onSuccess: () => {
           setScheduleOpen(false)
           if (mode === "publish") {
-            toast.success("Publication en cours… Vous serez notifié du résultat.")
+            toast.success("Publication en file d'attente. Le résultat de l'envoi s'affichera dans vos publications.")
             navigate("/content")
           } else if (mode === "schedule") {
             toast.success("Publication programmée.")

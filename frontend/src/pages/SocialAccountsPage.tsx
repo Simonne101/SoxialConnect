@@ -1,5 +1,8 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { PlugZap, RefreshCw, ShieldCheck } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useSearchParams } from "react-router"
+import { toast } from "sonner"
 import { PlatformIcon } from "@/components/brand/PlatformIcon"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { ErrorState, ListSkeleton } from "@/components/shared/States"
@@ -7,11 +10,25 @@ import { StatusBadge } from "@/components/shared/StatusBadge"
 import { ConnectDialog } from "@/components/social/ConnectDialog"
 import { ManageAccountSheet } from "@/components/social/ManageAccountSheet"
 import { Button } from "@/components/ui/button"
+import { qk } from "@/hooks/queries/keys"
 import { useSocialAccounts } from "@/hooks/queries/social"
+import { isApiEnabled } from "@/lib/http"
 import { formatInt } from "@/lib/format"
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
 import { ACCOUNT_STATUS } from "@/lib/status"
+import { placeholderAccount } from "@/services/socialAccounts"
 import type { SocialAccount } from "@/types"
+
+/** Codes renvoyés par le callback OAuth (backend) → message lisible. Jamais de détail technique. */
+const OAUTH_ERRORS: Record<string, string> = {
+  ACCESS_DENIED: "Autorisation annulée sur Google : aucun compte n'a été connecté.",
+  SCOPE_DENIED: "La mise en ligne de vidéos n'a pas été autorisée. Reconnectez-vous en acceptant toutes les autorisations.",
+  INVALID_STATE: "La demande de connexion a expiré ou n'est plus valide. Relancez la connexion.",
+  NO_CHANNEL: "Ce compte Google n'a pas de chaîne YouTube. Créez une chaîne puis reconnectez-vous.",
+  NOT_CONFIGURED: "La connexion YouTube n'est pas encore configurée sur le serveur.",
+  OAUTH_CLIENT_INVALID: "La configuration OAuth Google du serveur est invalide.",
+  NETWORK_ERROR: "Google est momentanément injoignable. Réessayez dans un instant.",
+}
 
 function entitiesLabel(a: SocialAccount) {
   if (!a.entities.length) return "—"
@@ -23,7 +40,26 @@ export default function SocialAccountsPage() {
   const { data, isLoading, isError, refetch } = useSocialAccounts()
   const [connectFor, setConnectFor] = useState<SocialAccount | null>(null)
   const [manageId, setManageId] = useState<string | null>(null)
-  const accounts = [...(data ?? [])].sort((a, b) => PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform))
+  const [params, setParams] = useSearchParams()
+  const qc = useQueryClient()
+
+  // Retour du consentement OAuth (callback Laravel) : message, rafraîchissement, URL nettoyée.
+  useEffect(() => {
+    const provider = params.get("oauth")
+    if (!provider) return
+    const name = provider in PLATFORMS ? PLATFORMS[provider as keyof typeof PLATFORMS].name : "Le réseau"
+    if (params.get("status") === "connected") toast.success(`${name} est connecté.`, { id: "oauth-result" })
+    else toast.error(OAUTH_ERRORS[params.get("code") ?? ""] ?? `La connexion à ${name} a échoué. Réessayez.`, { id: "oauth-result" })
+    void qc.invalidateQueries({ queryKey: qk.socialAccounts })
+    setParams({}, { replace: true })
+  }, [params, setParams, qc])
+
+  // Backend branché : un emplacement « à connecter » pour chaque réseau sans compte.
+  const listed = [...(data ?? [])]
+  if (isApiEnabled && data) {
+    for (const platform of PLATFORM_ORDER) if (!listed.some((a) => a.platform === platform)) listed.push(placeholderAccount(platform))
+  }
+  const accounts = listed.sort((a, b) => PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform))
   const manage = accounts.find((a) => a.id === manageId) ?? null
   const connected = accounts.filter((a) => a.status === "connected").length
   const attention = accounts.filter((a) => ["expired", "permission_required", "error"].includes(a.status)).length

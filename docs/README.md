@@ -108,6 +108,7 @@ production se font sous Linux (Docker ou WSL2).
 | [security.md](security.md) | Modèle de menaces et mesures de sécurité |
 | [api-integration.md](api-integration.md) | Intégrations des réseaux sociaux (capacités marquées `TO_VERIFY`) |
 | [development-roadmap.md](development-roadmap.md) | Phases 0 à 12, livrables et critères de sortie |
+| [publishing.md](publishing.md) | Moteur de publication interne (cycle de vie, file, planificateur, relances, adaptateurs) et connecteur YouTube (OAuth, mise en place Google Cloud, test réel) |
 | [decisions.md](decisions.md) | Journal des décisions d'architecture (ADR) |
 
 ## Règle de travail

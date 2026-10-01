@@ -66,7 +66,30 @@ export interface PostVariant {
   scheduledAt: string | null
   publishedAt: string | null
   externalUrl: string | null
+  /** Code de la dernière erreur (ex. NOT_CONFIGURED : aucune intégration active, rien n'a été publié). */
+  errorCode: string | null
   errorMessage: string | null
+  /** Nombre de tentatives d'envoi déjà effectuées (historique : GET …/attempts). */
+  attemptsCount: number
+}
+
+export type AttemptStatus = "pending" | "in_progress" | "succeeded" | "failed" | "unknown"
+export type AttemptTrigger = "schedule" | "manual" | "retry" | "auto_retry" | "recovery"
+
+/** Tentative de publication d'une variante (backend : publication_attempts). */
+export interface PublicationAttempt {
+  id: string
+  variantId: string
+  socialAccountId: string | null
+  attemptNumber: number
+  trigger: AttemptTrigger
+  status: AttemptStatus
+  retryable: boolean
+  errorCode: string | null
+  errorMessage: string | null
+  externalPostId: string | null
+  startedAt: string | null
+  finishedAt: string | null
 }
 
 export interface PostMetrics {

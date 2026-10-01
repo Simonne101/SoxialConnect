@@ -1,5 +1,7 @@
 // Libellés et couleurs des statuts — correspondance centralisée (docs/ux-ui.md §3.5).
 import type {
+  AttemptStatus,
+  AttemptTrigger,
   ClipStatus,
   MediaStatus,
   PostStatus,
@@ -49,6 +51,23 @@ export const VARIANT_STATUS: Record<VariantStatus, StatusMeta> = {
   published: meta("Publiée", "success"),
   failed: meta("Échec", "danger"),
   cancelled: meta("Annulée", "neutral"),
+}
+
+/** Tentatives d'envoi (historique d'une publication). */
+export const ATTEMPT_STATUS: Record<AttemptStatus, StatusMeta> = {
+  pending: meta("En attente", "neutral"),
+  in_progress: meta("En cours", "secondary"),
+  succeeded: meta("Réussie", "success"),
+  failed: meta("Échec", "danger"),
+  unknown: meta("Résultat inconnu", "warning"),
+}
+
+export const ATTEMPT_TRIGGER: Record<AttemptTrigger, string> = {
+  schedule: "Heure programmée",
+  manual: "Publier maintenant",
+  retry: "Réessayer",
+  auto_retry: "Nouvel essai automatique",
+  recovery: "Reprise après incident",
 }
 
 export const ACCOUNT_STATUS: Record<SocialAccountStatus, StatusMeta & { hint: string }> = {

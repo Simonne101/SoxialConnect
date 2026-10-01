@@ -71,6 +71,16 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::middleware('verified')->group(function () {
             Route::get('dashboard/summary', [DashboardController::class, 'summary'])->name('dashboard.summary');
             Route::get('social/accounts', [SocialController::class, 'accounts'])->name('social.accounts');
+            // Connexion OAuth officielle (YouTube, TikTok) : limite « oauth » par utilisateur (docs/security.md §12).
+            Route::post('social/{provider}/connect', [SocialController::class, 'connect'])
+                ->whereIn('provider', ['youtube', 'tiktok'])
+                ->middleware('throttle:oauth')->name('social.connect');
+            Route::get('social/accounts/{account}/tiktok/creator-info', [SocialController::class, 'tiktokCreatorInfo'])
+                ->whereUuid('account')->name('social.accounts.tiktok.creator-info');
+            Route::post('social/accounts/{account}/sync', [SocialController::class, 'sync'])
+                ->whereUuid('account')->middleware('throttle:oauth')->name('social.accounts.sync');
+            Route::delete('social/accounts/{account}', [SocialController::class, 'disconnect'])
+                ->whereUuid('account')->name('social.accounts.disconnect');
             Route::apiResource('content/posts', PostController::class)
                 ->parameters(['posts' => 'post'])
                 ->names('content.posts');
@@ -78,6 +88,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 Route::post('duplicate', 'duplicate')->name('duplicate');
                 Route::post('cancel', 'cancel')->name('cancel');
                 Route::post('reschedule', 'reschedule')->name('reschedule');
+                // Moteur de publication (docs/publishing.md) : limite « publish » par utilisateur.
+                Route::post('publish', 'publish')->middleware('throttle:publish')->name('publish');
+                Route::post('retry', 'retry')->middleware('throttle:publish')->name('retry');
+                Route::get('attempts', 'attempts')->name('attempts');
             });
 
             // Médiathèque (upload : vérification d'e-mail + limite « uploads », docs/security.md §3 et §12).

@@ -15,6 +15,19 @@ export function canReschedule(post: Post) {
   return post.status === "draft" || post.status === "scheduled" || post.status === "cancelled"
 }
 
+/** Annulable : programmée, ou en file tant qu'aucun envoi n'a commencé (CancelPost côté backend). */
+export function canCancel(post: Post) {
+  if (post.status === "scheduled") return true
+  return post.status === "processing"
+    && post.variants.some((v) => v.status === "queued")
+    && !post.variants.some((v) => v.status === "publishing")
+}
+
+/** Relançable : en échec ou partiellement publiée (PublishingService::retry côté backend). */
+export function canRetry(post: Post) {
+  return post.status === "failed" || post.status === "partially_published"
+}
+
 export function postsOn(posts: Post[], day: Date) {
   return posts
     .filter((p) => p.scheduledAt && isSameDay(new Date(p.scheduledAt), day))

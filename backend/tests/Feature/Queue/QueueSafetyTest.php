@@ -3,6 +3,8 @@
 namespace Tests\Feature\Queue;
 
 use App\Jobs\ProcessMediaJob;
+use App\Jobs\PublishPostVariantJob;
+use App\Jobs\ReconcilePublicationJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -18,7 +20,7 @@ class QueueSafetyTest extends TestCase
     use RefreshDatabase;
 
     /** Jobs de l'application et leur timeout (à compléter à chaque nouveau job). */
-    private const JOBS = [ProcessMediaJob::class];
+    private const JOBS = [ProcessMediaJob::class, PublishPostVariantJob::class, ReconcilePublicationJob::class];
 
     public function test_retry_after_exceeds_every_job_timeout(): void
     {

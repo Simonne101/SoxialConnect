@@ -1,10 +1,11 @@
 // Service Social Accounts.
-// - Backend branché : lecture seule de /api/v1/social/accounts (comptes réels ou de démonstration).
-//   Connexion / déconnexion / synchronisation : phase Social Connectors (OAuth officiel) — refusées
-//   explicitement ici, sans aucune simulation.
+// - Backend branché : /api/v1/social/accounts (comptes réels ou de démonstration).
+//   Connexion OAuth officielle : YouTube (redirection vers Google, callback côté Laravel).
+//   Les autres réseaux restent refusés explicitement, sans aucune simulation.
+//   Déconnexion et synchronisation : côté serveur (la synchronisation n'existe que pour YouTube).
 // - Sinon : démonstration en mémoire (connexion simulée). Aucun token n'existe côté frontend.
 import type { PlatformKey, SocialAccount, SocialAccountStatus, SocialAccountType } from "@/types"
-import { FeatureUnavailableError, SOCIAL_ACTION_UNAVAILABLE } from "@/lib/features"
+import { FeatureUnavailableError, OAUTH_PLATFORMS, SOCIAL_ACTION_UNAVAILABLE } from "@/lib/features"
 import { http, isApiEnabled } from "@/lib/http"
 import { PLATFORMS } from "@/lib/platforms"
 import { delay, notFound, store } from "./mockStore"
@@ -65,6 +66,43 @@ function find(id: string): SocialAccount {
   return store.socialAccounts.find((a) => a.id === id) ?? notFound("Compte")
 }
 
+/** Réseaux connectables via OAuth officiel (backend branché). */
+export const supportsOAuth = (platform: PlatformKey) => isApiEnabled && OAUTH_PLATFORMS.includes(platform)
+
+/**
+ * Démarre la connexion OAuth officielle : le serveur crée le state (usage unique) et renvoie
+ * l'URL de consentement de la plateforme ; le navigateur y est redirigé. Aucun token ne
+ * transite par le frontend : le retour arrive sur le callback Laravel, puis /social-accounts.
+ */
+export async function startOAuth(platform: PlatformKey): Promise<void> {
+  if (!supportsOAuth(platform)) throw new FeatureUnavailableError(SOCIAL_ACTION_UNAVAILABLE.connect)
+  const res = await http.post<{ authorization_url: string }>(`/social/${platform}/connect`)
+  const url = res!.data.authorization_url
+  // Garde-fou : uniquement la page de consentement officielle attendue.
+  if (!url.startsWith("https://accounts.google.com/")) throw new FeatureUnavailableError("Adresse de connexion inattendue.")
+  window.location.assign(url)
+  // La page quitte l'application : l'indicateur « Redirection… » reste affiché jusque-là.
+  return new Promise<void>(() => {})
+}
+
+/** Emplacement « à connecter » pour un réseau sans compte (backend branché). */
+export function placeholderAccount(platform: PlatformKey): SocialAccount {
+  return {
+    id: `new:${platform}`,
+    platform,
+    status: PLATFORMS[platform].availability === "coming_soon" ? "coming_soon" : "disconnected",
+    accountType: null,
+    displayName: null,
+    username: null,
+    entities: [],
+    permissions: [],
+    followers: null,
+    connectedAt: null,
+    lastSyncedAt: null,
+    statusMessage: null,
+  }
+}
+
 /** Simule : redirection OAuth → consentement → callback → comptes récupérés. */
 export async function connectAccount(id: string): Promise<SocialAccount> {
   assertDemoMode("connect")
@@ -85,7 +123,10 @@ export async function connectAccount(id: string): Promise<SocialAccount> {
 }
 
 export async function disconnectAccount(id: string): Promise<SocialAccount> {
-  assertDemoMode("disconnect")
+  if (isApiEnabled) {
+    const res = await http.delete<ApiSocialAccount>(`/social/accounts/${encodeURIComponent(id)}`)
+    return toSocialAccount(res!.data)
+  }
   await delay(700)
   const account = find(id)
   account.status = "disconnected"
@@ -97,7 +138,10 @@ export async function disconnectAccount(id: string): Promise<SocialAccount> {
 }
 
 export async function syncAccount(id: string): Promise<SocialAccount> {
-  assertDemoMode("sync")
+  if (isApiEnabled) {
+    const res = await http.post<ApiSocialAccount>(`/social/accounts/${encodeURIComponent(id)}/sync`)
+    return toSocialAccount(res!.data)
+  }
   await delay(1200)
   const account = find(id)
   account.lastSyncedAt = new Date().toISOString()

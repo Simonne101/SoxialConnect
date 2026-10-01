@@ -1,7 +1,8 @@
 // Service Content.
 // - Backend branché (VITE_API_URL défini) : /api/v1/content/posts (Laravel).
 // - Sinon : données de démonstration en mémoire, même contrat.
-// Aucune publication réelle n'est déclenchée ici (phase Publishing).
+// Publier / Réessayer passent par le moteur de publication du backend (file « publishing ») :
+// sans intégration officielle active, chaque envoi échoue explicitement (NOT_CONFIGURED).
 import type {
   PlatformKey,
   Post,
@@ -12,6 +13,9 @@ import type {
   PostSource,
   PostStatus,
   PostVariant,
+  PublicationAttempt,
+  AttemptStatus,
+  AttemptTrigger,
   VariantOptions,
   VariantStatus,
 } from "@/types"
@@ -39,7 +43,24 @@ interface ApiVariant {
   scheduled_at: string | null
   published_at: string | null
   external_url: string | null
+  attempts_count?: number
+  error_code?: string | null
   error_message: string | null
+}
+
+interface ApiAttempt {
+  id: string
+  post_variant_id: string
+  social_account_id: string | null
+  attempt_number: number
+  trigger: AttemptTrigger
+  status: AttemptStatus
+  retryable: boolean
+  error_code: string | null
+  error_message: string | null
+  external_post_id: string | null
+  started_at: string | null
+  finished_at: string | null
 }
 
 interface ApiPost {
@@ -94,7 +115,9 @@ export function toPost(p: ApiPost): Post {
         scheduledAt: v.scheduled_at,
         publishedAt: v.published_at,
         externalUrl: v.external_url,
+        errorCode: v.error_code ?? null,
         errorMessage: v.error_message,
+        attemptsCount: v.attempts_count ?? 0,
       })),
     metrics: null, // statistiques : phase Analytics
     lockVersion: p.lock_version,
@@ -181,15 +204,14 @@ export async function getPost(id: string): Promise<Post> {
 
 export async function savePost(input: PostDraftInput, mode: SaveMode, id?: string, lockVersion?: number): Promise<Post> {
   if (isApiEnabled) {
-    if (mode === "publish") {
-      // Garde-fou : aucune publication réelle avant la phase Publishing.
-      throw new ApiError(409, "La publication immédiate sera disponible avec la publication réelle.")
-    }
-    const body = toPayload(input, mode, id ? lockVersion : undefined)
+    // « Publier maintenant » = enregistrement en brouillon, puis mise en file par le moteur de
+    // publication. Le résultat réel (publié, échec) arrive ensuite, jamais simulé ici.
+    const body = toPayload(input, mode === "publish" ? "draft" : mode, id ? lockVersion : undefined)
     const res = id
       ? await http.put<ApiPost>(`/content/posts/${encodeURIComponent(id)}`, body)
       : await http.post<ApiPost>("/content/posts", body)
-    return toPost(res!.data)
+    const saved = toPost(res!.data)
+    return mode === "publish" ? publishNow(saved.id, saved.lockVersion) : saved
   }
   return mockSave(input, mode, id, lockVersion)
 }
@@ -233,14 +255,35 @@ export async function duplicatePost(id: string): Promise<Post> {
       scheduledAt: null,
       publishedAt: null,
       externalUrl: null,
+      errorCode: null,
       errorMessage: null,
+      attemptsCount: 0,
     })),
   }
   store.posts.unshift(copy)
   return structuredClone(copy)
 }
 
-/** Annule une programmation : statut « cancelled », date conservée (docs/database.md §3.3). */
+/** Met une publication en file d'envoi (moteur de publication du backend). */
+export async function publishNow(id: string, lockVersion?: number): Promise<Post> {
+  if (isApiEnabled) {
+    const res = await http.post<ApiPost>(`/content/posts/${encodeURIComponent(id)}/publish`, lockVersion !== undefined ? { lock_version: lockVersion } : {})
+    return toPost(res!.data)
+  }
+  await delay(300)
+  const post = mockLocked(id, lockVersion)
+  for (const v of post.variants) {
+    v.status = "queued"
+    v.errorCode = null
+    v.errorMessage = null
+  }
+  post.status = "processing"
+  touch(post)
+  simulatePublication(post.id)
+  return structuredClone(post)
+}
+
+/** Annule une programmation ou un envoi en file : statut « cancelled », date conservée (docs/database.md §3.3). */
 export async function cancelSchedule(id: string, lockVersion?: number): Promise<Post> {
   if (isApiEnabled) {
     const res = await http.post<ApiPost>(`/content/posts/${encodeURIComponent(id)}/cancel`, lockVersion !== undefined ? { lock_version: lockVersion } : {})
@@ -248,9 +291,10 @@ export async function cancelSchedule(id: string, lockVersion?: number): Promise<
   }
   await delay(300)
   const post = mockLocked(id, lockVersion)
-  if (post.status !== "scheduled") throw new ApiError(409, "Seule une publication programmée peut être annulée.")
-  for (const v of post.variants) if (v.status === "scheduled" || v.status === "draft") v.status = "cancelled"
-  post.status = "cancelled"
+  if (post.status !== "scheduled" && post.status !== "processing") throw new ApiError(409, "Seule une publication programmée ou en file d'attente peut être annulée.")
+  if (post.variants.some((v) => v.status === "publishing")) throw new ApiError(409, "Une publication est en cours d'envoi : elle ne peut plus être annulée. Attendez son résultat.")
+  for (const v of post.variants) if (v.status === "scheduled" || v.status === "draft" || v.status === "queued") v.status = "cancelled"
+  post.status = aggregateStatus(post.variants, "cancelled")
   touch(post)
   return structuredClone(post)
 }
@@ -282,20 +326,57 @@ export async function reschedule(id: string, scheduledAt: string, lockVersion?: 
   return structuredClone(post)
 }
 
-/** Relance des variantes en échec — démonstration uniquement (phase Publishing côté API). */
-export async function retryFailed(id: string): Promise<Post> {
-  if (isApiEnabled) throw new ApiError(409, "La relance sera disponible avec la publication réelle.")
+/** Message du backend quand la dernière tentative a un résultat inconnu (confirmation requise). */
+export const UNKNOWN_OUTCOME_HINT = "résultat de la dernière tentative est inconnu"
+
+/** « Réessayer » : nouvelle tentative pour les variantes en échec (l'historique est conservé). */
+export async function retryFailed(id: string, lockVersion?: number, confirmUnknown = false): Promise<Post> {
+  if (isApiEnabled) {
+    const res = await http.post<ApiPost>(`/content/posts/${encodeURIComponent(id)}/retry`, {
+      ...(lockVersion !== undefined ? { lock_version: lockVersion } : {}),
+      ...(confirmUnknown ? { confirm_unknown: true } : {}),
+    })
+    return toPost(res!.data)
+  }
   await delay(300)
-  const post = store.posts.find((p) => p.id === id) ?? notFound("Publication")
+  const post = mockLocked(id, lockVersion)
+  if (post.status !== "failed" && post.status !== "partially_published") throw new ApiError(409, "Seule une publication en échec peut être relancée.")
   for (const v of post.variants) {
     if (v.status === "failed") {
-      v.status = "publishing"
+      v.status = "queued"
+      v.errorCode = null
       v.errorMessage = null
     }
   }
   post.status = "processing"
+  touch(post)
   simulatePublication(post.id)
   return structuredClone(post)
+}
+
+/** Historique des tentatives d'envoi d'une publication, de la plus récente à la plus ancienne. */
+export async function listAttempts(id: string): Promise<PublicationAttempt[]> {
+  if (isApiEnabled) {
+    const res = await http.get<ApiAttempt[]>(`/content/posts/${encodeURIComponent(id)}/attempts`)
+    return res!.data.map((a) => ({
+      id: a.id,
+      variantId: a.post_variant_id,
+      socialAccountId: a.social_account_id,
+      attemptNumber: a.attempt_number,
+      trigger: a.trigger,
+      status: a.status,
+      retryable: a.retryable,
+      errorCode: a.error_code,
+      errorMessage: a.error_message,
+      externalPostId: a.external_post_id,
+      startedAt: a.started_at,
+      finishedAt: a.finished_at,
+    }))
+  }
+  await delay(150)
+  const post = store.posts.find((p) => p.id === id) ?? notFound("Publication")
+  const variantIds = new Set(post.variants.map((v) => v.id))
+  return structuredClone(mockAttempts.filter((a) => variantIds.has(a.variantId)))
 }
 
 // --- Démonstration (sans backend) ---------------------------------------------------------------
@@ -373,14 +454,16 @@ function buildVariants(postId: string, input: PostDraftInput, status: VariantSta
     scheduledAt: input.scheduledAt,
     publishedAt: null,
     externalUrl: null,
+    errorCode: null,
     errorMessage: null,
+    attemptsCount: 0,
   }))
 }
 
 const MODE_STATUS: Record<SaveMode, { post: PostStatus; variant: VariantStatus }> = {
   draft: { post: "draft", variant: "draft" },
   schedule: { post: "scheduled", variant: "scheduled" },
-  publish: { post: "processing", variant: "publishing" },
+  publish: { post: "processing", variant: "queued" },
 }
 
 async function mockSave(input: PostDraftInput, mode: SaveMode, id?: string, lockVersion?: number): Promise<Post> {
@@ -413,27 +496,53 @@ async function mockSave(input: PostDraftInput, mode: SaveMode, id?: string, lock
   return structuredClone(post)
 }
 
+/** Message de l'adaptateur par défaut du backend (NotConfiguredPublisher) : rien n'est publié. */
+const NOT_CONFIGURED_MESSAGE = "La publication n'a pas pu être envoyée : aucune intégration active n'est disponible pour ce réseau. Rien n'a été publié."
+
+/** Démonstration : historique des tentatives, en mémoire. */
+const mockAttempts: PublicationAttempt[] = []
+
 /**
- * Démonstration : simule le traitement du worker « publishing » (jamais en mode API).
- * Chaque variante passe à « published », sauf les comptes non connectés qui échouent.
+ * Démonstration : reproduit le moteur du backend sans intégration active (jamais en mode API).
+ * Chaque variante passe « en file » → « publication… » → « échec » (NOT_CONFIGURED) avec une
+ * tentative enregistrée. Aucune publication réussie n'est simulée.
  */
 function simulatePublication(postId: string) {
   setTimeout(() => {
     const post = store.posts.find((p) => p.id === postId)
     if (!post) return
+    for (const v of post.variants) if (v.status === "queued") v.status = "publishing"
+    post.status = aggregateStatus(post.variants, post.status)
+  }, 800)
+  setTimeout(() => {
+    const post = store.posts.find((p) => p.id === postId)
+    if (!post) return
     const now = new Date().toISOString()
     for (const v of post.variants) {
+      if (v.status !== "publishing") continue
       const account = store.socialAccounts.find((a) => a.id === v.socialAccountId)
-      if (account && account.status !== "connected") {
-        v.status = "failed"
-        v.errorMessage = `${account.statusMessage ?? "Le compte n'est pas connecté."} Reconnectez-le puis réessayez.`
-      } else {
-        v.status = "published"
-        v.publishedAt = now
-        v.externalUrl = "#"
-      }
+      const disconnected = !account || account.status !== "connected"
+      v.status = "failed"
+      v.errorCode = disconnected ? "ACCOUNT_DISCONNECTED" : "NOT_CONFIGURED"
+      v.errorMessage = disconnected
+        ? `${account?.statusMessage ?? "Le compte n'est pas connecté."} Reconnectez-le puis réessayez. Rien n'a été publié.`
+        : NOT_CONFIGURED_MESSAGE
+      v.attemptsCount++
+      mockAttempts.unshift({
+        id: uid("att"),
+        variantId: v.id,
+        socialAccountId: v.socialAccountId,
+        attemptNumber: v.attemptsCount,
+        trigger: v.attemptsCount > 1 ? "retry" : "manual",
+        status: "failed",
+        retryable: false,
+        errorCode: v.errorCode,
+        errorMessage: v.errorMessage,
+        externalPostId: null,
+        startedAt: now,
+        finishedAt: now,
+      })
     }
     post.status = aggregateStatus(post.variants, post.status)
-    post.publishedAt = post.variants.some((v) => v.status === "published") ? now : null
-  }, 2500)
+  }, 2000)
 }

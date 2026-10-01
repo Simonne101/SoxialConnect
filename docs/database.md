@@ -221,6 +221,8 @@ Index : (`user_id`, `status`), (`user_id`, `scheduled_at`), (`status`, `schedule
 | options | json | options propres à la plateforme, validées par l'adaptateur (titre YouTube, visibilité TikTok, tableau Pinterest…) |
 | status | varchar(32) | `draft` \| `scheduled` \| `queued` \| `publishing` \| `published` \| `failed` \| `cancelled` |
 | scheduled_at | datetime | null = hérite de `posts.scheduled_at` |
+| queued_at | datetime | null, dernière mise en file (moteur de publication, reprise des jobs perdus) |
+| attempts_count | int unsigned | défaut 0, tentatives effectuées ; sert de jeton aux jobs (un job périmé ou dupliqué ne s'exécute pas) — docs/publishing.md |
 | external_post_id | varchar(191) | null |
 | external_url | varchar(1024) | null |
 | published_at | datetime | null |
@@ -246,16 +248,20 @@ Contrainte : **unique** (`post_id`, `post_variant_key`, `media_id`) — **[MySQL
 |---|---|---|
 | id | uuid | PK |
 | post_variant_id | uuid | FK ON DELETE CASCADE |
+| social_account_id | uuid | null, FK `social_accounts` ON DELETE SET NULL : compte ciblé au moment de l'envoi |
 | attempt_number | smallint | |
+| trigger | varchar(16) | `schedule` \| `manual` \| `retry` \| `auto_retry` \| `recovery` (CHECK) |
+| triggered_by | uuid | null, FK `users` ON DELETE SET NULL (null = système) |
 | idempotency_key | varchar(64) | **unique** : (variant, n° de tentative logique) |
 | status | varchar(16) | `pending` \| `in_progress` \| `succeeded` \| `failed` \| `unknown` |
 | retryable | boolean | |
 | job_uuid | uuid | null, traçabilité Horizon |
 | http_status | smallint | null |
 | error_code, error_message | varchar | null, **expurgés** (jamais d'en-tête Authorization ni de token) |
+| external_post_id | varchar(191) | null, identifiant renvoyé par le réseau en cas de succès |
 | response_excerpt | json | null, extrait expurgé (IDs, codes d'erreur) |
 | started_at, finished_at | datetime | |
-Contrainte : **unique** (`post_variant_id`, `attempt_number`). Index : (`status`, `started_at`).
+Contrainte : **unique** (`post_variant_id`, `attempt_number`). Index : (`status`, `started_at`), (`post_variant_id`, `status`). Une ligne par envoi, jamais modifiée après sa conclusion : une relance crée une nouvelle ligne (docs/publishing.md).
 
 ### 3.4 MEDIA
 

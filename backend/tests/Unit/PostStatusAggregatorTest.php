@@ -23,6 +23,8 @@ class PostStatusAggregatorTest extends TestCase
             'publié + échec' => [[V::Published, V::Failed], PostStatus::PartiallyPublished],
             'tout en échec' => [[V::Failed, V::Failed], PostStatus::Failed],
             'tout annulé' => [[V::Cancelled], PostStatus::Cancelled],
+            'publié + annulé' => [[V::Published, V::Cancelled], PostStatus::PartiallyPublished],
+            'échec + annulé' => [[V::Failed, V::Cancelled], PostStatus::Failed],
         ];
     }
 

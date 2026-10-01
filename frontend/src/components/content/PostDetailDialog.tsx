@@ -1,4 +1,4 @@
-import { AlertCircle, CalendarClock, CalendarX2, Copy, ExternalLink, Pencil, RotateCw, Trash2 } from "lucide-react"
+import { AlertCircle, CalendarClock, CalendarX2, Copy, ExternalLink, History, Pencil, RotateCw, Trash2 } from "lucide-react"
 import { PlatformIcon } from "@/components/brand/PlatformIcon"
 import { MediaThumb } from "@/components/media/MediaThumb"
 import { StatusBadge } from "@/components/shared/StatusBadge"
@@ -11,13 +11,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { usePost } from "@/hooks/queries/content"
+import { usePost, usePostAttempts } from "@/hooks/queries/content"
 import { features, PUBLISHING_UNAVAILABLE } from "@/lib/features"
 import { formatCompact, formatDate } from "@/lib/format"
 import { PLATFORMS } from "@/lib/platforms"
-import { POST_STATUS, VARIANT_STATUS } from "@/lib/status"
+import { ATTEMPT_STATUS, ATTEMPT_TRIGGER, POST_STATUS, VARIANT_STATUS } from "@/lib/status"
 import type { MediaAsset, Post } from "@/types"
-import { canEdit, canReschedule, postTitle } from "./postUtils"
+import { canCancel, canEdit, canReschedule, canRetry, postTitle } from "./postUtils"
 import type { PostActions } from "./usePostActions"
 
 export function PostDetailDialog({
@@ -36,6 +36,8 @@ export function PostDetailDialog({
   const detail = usePost(listed?.id)
   const post = listed ? (detail.data?.id === listed.id ? detail.data : listed) : null
   const gone = detail.isError
+  const hasAttempts = Boolean(post?.variants.some((v) => v.attemptsCount > 0) || post?.status === "processing")
+  const attempts = usePostAttempts(hasAttempts ? post?.id : undefined, post?.status === "processing")
   return (
     <Dialog open={Boolean(listed)} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-[640px]">
@@ -96,6 +98,41 @@ export function PostDetailDialog({
               </ul>
             </section>
 
+            {hasAttempts && (
+              <section aria-labelledby="attempts-title">
+                <h3 id="attempts-title" className="flex items-center gap-1.5 text-sm font-semibold">
+                  <History className="size-4" aria-hidden="true" /> Historique des envois
+                </h3>
+                {attempts.isError ? (
+                  <p className="mt-2 text-sm text-ink-muted">L'historique n'a pas pu être chargé.</p>
+                ) : !attempts.data ? (
+                  <p className="mt-2 text-sm text-ink-muted">Chargement…</p>
+                ) : attempts.data.length === 0 ? (
+                  <p className="mt-2 text-sm text-ink-muted">Envoi en file d'attente : aucune tentative pour l'instant.</p>
+                ) : (
+                  <ol className="mt-2 space-y-2">
+                    {attempts.data.map((a) => {
+                      const variant = post.variants.find((v) => v.id === a.variantId)
+                      return (
+                        <li key={a.id} className="rounded-xl border border-border p-3 text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {variant && <PlatformIcon platform={variant.platform} size="sm" />}
+                            <span className="font-medium text-ink">Tentative {a.attemptNumber}</span>
+                            <span className="text-xs text-ink-muted">
+                              {ATTEMPT_TRIGGER[a.trigger]}
+                              {a.startedAt && ` · ${formatDate(a.startedAt, "d MMM yyyy 'à' HH:mm:ss")}`}
+                            </span>
+                            <span className="ml-auto"><StatusBadge meta={ATTEMPT_STATUS[a.status]} /></span>
+                          </div>
+                          {a.errorMessage && <p className="mt-1.5 text-xs text-ink-soft">{a.errorMessage}</p>}
+                        </li>
+                      )
+                    })}
+                  </ol>
+                )}
+              </section>
+            )}
+
             {post.metrics && (
               <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {(
@@ -122,7 +159,7 @@ export function PostDetailDialog({
                 <Button variant="outline" onClick={() => { close(); actions.duplicate(post) }}>
                   <Copy /> Dupliquer
                 </Button>
-                {post.status === "scheduled" && (
+                {canCancel(post) && (
                   <Button variant="outline" disabled={gone} onClick={() => { close(); actions.cancel(post) }}>
                     <CalendarX2 /> Annuler
                   </Button>
@@ -132,7 +169,7 @@ export function PostDetailDialog({
                     <CalendarClock /> {post.status === "scheduled" ? "Reprogrammer" : "Programmer"}
                   </Button>
                 )}
-                {(post.status === "failed" || post.status === "partially_published") && (
+                {canRetry(post) && (
                   <Button variant="outline" disabled={!features.publishing} title={features.publishing ? undefined : PUBLISHING_UNAVAILABLE} onClick={() => { close(); actions.retry(post) }}>
                     <RotateCw /> Réessayer
                   </Button>

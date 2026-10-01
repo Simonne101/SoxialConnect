@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { features, PUBLISHING_UNAVAILABLE } from "@/lib/features"
 import type { Post } from "@/types"
-import { canEdit, canReschedule, postTitle } from "./postUtils"
+import { canCancel, canEdit, canReschedule, canRetry, postTitle } from "./postUtils"
 import type { PostActions } from "./usePostActions"
 
 export function PostActionsMenu({ post, actions, onOpen }: { post: Post; actions: PostActions; onOpen?: (post: Post) => void }) {
@@ -39,12 +39,12 @@ export function PostActionsMenu({ post, actions, onOpen }: { post: Post; actions
             <CalendarClock /> {post.status === "scheduled" ? "Reprogrammer" : "Programmer"}
           </DropdownMenuItem>
         )}
-        {post.status === "scheduled" && (
+        {canCancel(post) && (
           <DropdownMenuItem onSelect={() => actions.cancel(post)}>
-            <CalendarX2 /> Annuler la programmation
+            <CalendarX2 /> {post.status === "processing" ? "Annuler l'envoi" : "Annuler la programmation"}
           </DropdownMenuItem>
         )}
-        {(post.status === "failed" || post.status === "partially_published") && (
+        {canRetry(post) && (
           <DropdownMenuItem disabled={!features.publishing} onSelect={() => actions.retry(post)}>
             <RotateCw /> Réessayer la publication
             {!features.publishing && <span className="sr-only"> ({PUBLISHING_UNAVAILABLE})</span>}
