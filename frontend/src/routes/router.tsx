@@ -6,6 +6,8 @@ import {
   AppLayout,
   LandingPage,
   LegalPage,
+  TermsPage,
+  PrivacyPage,
   LoginPage,
   RegisterPage,
   ForgotPasswordPage,
@@ -31,6 +33,9 @@ export const router = createBrowserRouter([
     errorElement: <RouteError />,
     children: [
       { path: "/", element: <LandingPage /> },
+      // URLs canoniques exigées par les plateformes (TikTok Developer, etc.) : Terms / Privacy publics.
+      { path: "/terms", element: <TermsPage /> },
+      { path: "/privacy", element: <PrivacyPage /> },
       { path: "/legal/:doc", element: <LegalPage /> },
       { path: "/design-system", element: <DesignSystemPage /> },
       {
