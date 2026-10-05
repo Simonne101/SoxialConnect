@@ -28,12 +28,27 @@ export interface VariantDraft {
 }
 
 /**
- * Compte social ciblé pour un réseau : celui choisi dans la variante, sinon le premier compte
- * connecté, sinon le premier compte du réseau (pour afficher son état).
+ * Compte social ciblé pour un réseau (identifié par son id interne, jamais par son nom).
+ * - Compte choisi (accountId) : CE compte uniquement ; s'il n'existe plus, aucun autre n'est
+ *   substitué (undefined) — la publication est bloquée plutôt que partir vers un autre compte.
+ * - Aucun choix : premier compte connecté, sinon premier compte du réseau (pour afficher son état).
  */
 export function platformAccount(accounts: SocialAccount[], platform: PlatformKey, accountId?: string): SocialAccount | undefined {
   const own = accounts.filter((a) => a.platform === platform)
-  return own.find((a) => a.id === accountId) ?? own.find((a) => a.status === "connected") ?? own[0]
+  if (accountId) return own.find((a) => a.id === accountId)
+  return own.find((a) => a.status === "connected") ?? own[0]
+}
+
+/** Comptes publiables d'un réseau (connectés), dans l'ordre de connexion. */
+export function connectedAccounts(accounts: SocialAccount[], platform: PlatformKey): SocialAccount[] {
+  return accounts.filter((a) => a.platform === platform && a.status === "connected")
+}
+
+/** Nom affiché d'un compte dans le Composer (titre, sinon identifiant public). */
+export function accountLabel(account: SocialAccount): string {
+  const name = account.displayName ?? account.username ?? "Compte sans nom"
+  if (account.platform === "telegram") return `${account.accountType === "group" ? "Groupe" : "Chaîne"} · ${name}`
+  return account.username && account.displayName && account.username !== account.displayName ? `${name} (${account.username})` : name
 }
 
 export interface ComposerValues {
@@ -106,7 +121,15 @@ export function validateComposer(
     const v = values.variants[p] ?? defaultVariant(p)
     const text = variantText(values, p)
     const account = platformAccount(accounts, p, v.accountId)
-    if (account && account.status !== "connected") {
+    if (!account) {
+      issues.push({
+        platform: p,
+        level: "error",
+        message: v.accountId
+          ? `${cfg.name} : le compte choisi n'existe plus. Choisissez un autre compte.`
+          : `${cfg.name} : aucun compte connecté. Connectez un compte dans Réseaux sociaux.`,
+      })
+    } else if (account.status !== "connected") {
       issues.push({ platform: p, level: "error", message: `${cfg.name} n'est pas prêt : ${(account.statusMessage ?? "reconnectez le compte").replace(/.$/, "")}.` })
     }
     if (p === "telegram") {

@@ -12,7 +12,7 @@ import { PLATFORMS } from "@/lib/platforms"
 import { ACCOUNT_STATUS } from "@/lib/status"
 import { cn } from "@/lib/utils"
 import type { MediaAsset, PlatformKey, SocialAccount, VariantOptions } from "@/types"
-import { telegramTextLimit, type VariantDraft } from "./model"
+import { accountLabel, telegramTextLimit, type VariantDraft } from "./model"
 
 // Tableaux Pinterest fictifs (futur : GET boards via l'adaptateur Pinterest).
 const PINTEREST_BOARDS = ["Inspiration créative", "Moodboard automne", "Conseils créateurs"]
@@ -88,7 +88,7 @@ interface Props {
   variant: VariantDraft
   mainBody: string
   account: SocialAccount | undefined
-  /** Comptes connectés du réseau, quand on peut en choisir un (chaînes et groupes Telegram). */
+  /** Comptes proposés pour ce réseau (connectés, plus le compte choisi s'il ne l'est plus). */
   accountChoices?: SocialAccount[]
   media: MediaAsset[]
   hashtagSuggestions: string[]
@@ -122,15 +122,16 @@ export function VariantEditor({ platform, variant, mainBody, account, accountCho
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label className="text-[13px] font-semibold" htmlFor={`${uid}-account`}>{platform === "telegram" ? "Chaîne ou groupe" : "Compte"}</Label>
-          {account && accountChoices.length > 1 ? (
-            <Select value={account.id} onValueChange={(id) => onChange({ accountId: id })}>
-              <SelectTrigger id={`${uid}-account`} className="w-full">
-                <SelectValue />
+          {accountChoices.length > 1 || (!account && accountChoices.length > 0) ? (
+            // Plusieurs comptes du réseau (ou compte choisi disparu) : choix explicite, par identifiant.
+            <Select value={account?.id ?? ""} onValueChange={(id) => onChange({ accountId: id })}>
+              <SelectTrigger id={`${uid}-account`} className="w-full" aria-invalid={!account}>
+                <SelectValue placeholder="Choisir un compte" />
               </SelectTrigger>
               <SelectContent>
                 {accountChoices.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.accountType === "group" ? "Groupe" : "Chaîne"} · {a.displayName ?? a.username ?? a.id}
+                  <SelectItem key={a.id} value={a.id} disabled={a.status !== "connected"}>
+                    {accountLabel(a)}{a.status !== "connected" ? " — à reconnecter" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -150,7 +151,7 @@ export function VariantEditor({ platform, variant, mainBody, account, accountCho
             </Select>
           ) : (
             <p id={`${uid}-account`} className="flex h-10 items-center rounded-lg border border-border bg-muted/50 px-3 text-sm text-ink-soft">
-              {account?.entities[0]?.name ?? account?.displayName ?? "—"}
+              {account?.entities[0]?.name ?? (account ? accountLabel(account) : "Aucun compte connecté")}
             </p>
           )}
         </div>

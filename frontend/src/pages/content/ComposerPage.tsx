@@ -11,6 +11,7 @@ import {
   type Issue,
   type VariantDraft,
   defaultVariant,
+  connectedAccounts,
   fromPost,
   platformAccount,
   telegramTextLimit,
@@ -111,7 +112,8 @@ export default function ComposerPage() {
     const selected = values.platforms.includes(p)
     const next = selected ? values.platforms.filter((x) => x !== p) : [...values.platforms, p]
     setValue("platforms", next, { shouldDirty: true })
-    if (!selected && !values.variants[p]) setValue(`variants.${p}`, defaultVariant(p), { shouldDirty: true })
+    // Compte cible fixé dès la sélection du réseau (premier compte connecté), modifiable ensuite.
+    if (!selected && !values.variants[p]) setValue(`variants.${p}`, { ...defaultVariant(p), accountId: connectedAccounts(accounts, p)[0]?.id }, { shouldDirty: true })
     if (!selected) setActiveTab(p)
     setIssues([])
   }
@@ -367,7 +369,10 @@ export default function ComposerPage() {
               {values.platforms.map((p) => {
                 const variant = values.variants[p] ?? defaultVariant(p)
                 const account = platformAccount(accounts, p, variant.accountId)
-                const accountChoices = p === "telegram" ? accounts.filter((a) => a.platform === p && a.status === "connected") : []
+                // Comptes proposés : les comptes connectés du réseau, plus le compte déjà choisi s'il ne
+                // l'est plus (pour l'afficher avec son état, sans jamais en substituer un autre).
+                const connected = connectedAccounts(accounts, p)
+                const accountChoices = account && !connected.some((a) => a.id === account.id) ? [account, ...connected] : connected
                 return (
                   <TabsContent key={p} value={p} className="pt-5">
                     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">

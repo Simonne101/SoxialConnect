@@ -18,7 +18,7 @@ import { apiErrorMessage, isApiEnabled } from "@/lib/http"
 import { formatInt } from "@/lib/format"
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
 import { ACCOUNT_STATUS } from "@/lib/status"
-import { placeholderAccount } from "@/services/socialAccounts"
+import { placeholderAccount, supportsOAuth, supportsTelegramLink } from "@/services/socialAccounts"
 import type { SocialAccount } from "@/types"
 
 /** Codes renvoyés par les callbacks OAuth (backend) → message lisible. Jamais de détail technique. */
@@ -71,7 +71,10 @@ export default function SocialAccountsPage() {
   const manage = accounts.find((a) => a.id === manageId) ?? null
   // Réseaux connectés (Telegram peut compter plusieurs chaînes ou groupes : un seul réseau).
   const connected = new Set(accounts.filter((a) => a.status === "connected").map((a) => a.platform)).size
-  const firstTelegramId = accounts.find((a) => a.platform === "telegram" && a.status !== "disconnected" && a.status !== "coming_soon")?.id
+  // « Ajouter » : sur la première ligne de chaque réseau connectable qui a déjà un compte
+  // (plusieurs chaînes YouTube, plusieurs destinations Telegram…).
+  const canAdd = (a: SocialAccount) => supportsOAuth(a.platform) || supportsTelegramLink(a.platform)
+  const firstRowIds = new Set(PLATFORM_ORDER.map((p) => accounts.find((a) => a.platform === p && !a.id.startsWith("new:") && canAdd(a))?.id).filter(Boolean))
   const attention = accounts.filter((a) => ["expired", "permission_required", "error"].includes(a.status)).length
 
   return (
@@ -162,8 +165,14 @@ export default function SocialAccountsPage() {
                           <Button onClick={() => setConnectFor(a)} aria-label={`Reconnecter ${cfg.name}`}>Reconnecter</Button>
                         )}
                         <Button variant="outline" onClick={() => setManageId(a.id)} aria-label={`Gérer ${cfg.name}`}>Gérer</Button>
-                        {isApiEnabled && a.id === firstTelegramId && (
-                          <Button variant="secondary" onClick={() => setConnectFor(placeholderAccount("telegram"))} aria-label="Ajouter une autre chaîne ou un autre groupe Telegram">Ajouter</Button>
+                        {isApiEnabled && firstRowIds.has(a.id) && (
+                          <Button
+                            variant="secondary"
+                            onClick={() => setConnectFor(placeholderAccount(a.platform))}
+                            aria-label={a.platform === "telegram" ? "Ajouter une autre chaîne ou un autre groupe Telegram" : `Ajouter un autre compte ${cfg.name}`}
+                          >
+                            Ajouter
+                          </Button>
                         )}
                       </>
                     )}
