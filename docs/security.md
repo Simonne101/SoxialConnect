@@ -51,6 +51,8 @@ le serveur est la seule autorité ; aucun secret dans le code, Git, les logs, le
 - Régénération de l'ID de session au login ; invalidation des autres sessions au changement de mot de passe.
 - Messages d'erreur génériques (pas d'énumération d'emails), y compris au reset et à l'inscription.
 - Vérification email obligatoire (`verified`) avant toute action sensible (connexion OAuth, upload, publication).
+  La consultation de ses propres comptes sociaux (`GET social/accounts`, liste éventuellement vide) n'en dépend pas :
+  un nouvel utilisateur voit les réseaux disponibles et un bandeau l'invite à vérifier son adresse avant de connecter.
 - **2FA TOTP** : colonnes prêtes, activation par Fortify ; codes de secours chiffrés ; confirmation par mot de passe (`password.confirm`) pour les actions sensibles.
 - Écran Sécurité : sessions actives (driver de session `database`) et révocation.
 
@@ -128,6 +130,16 @@ Plateforme → Endpoint → Vérification de signature (HMAC, corps brut, hash_e
 ```
 - Meta (Facebook, Instagram, Threads) : en-tête `X-Hub-Signature-256` = HMAC-SHA256 du corps avec l'app secret ;
   vérification d'abonnement `hub.mode` / `hub.verify_token` / `hub.challenge` (`TO_VERIFY` pour Threads).
+- Telegram (bot partagé, publishing.md §13) :
+  - authentification : en-tête `X-Telegram-Bot-Api-Secret-Token` comparé par `hash_equals` à
+    `TELEGRAM_WEBHOOK_SECRET` (403 sinon, et tout est refusé si le secret n'est pas configuré) ;
+  - dédoublonnage : par `update_id` ;
+  - données conservées : aucun payload ;
+  - liaison d'une conversation : code à usage unique de 10 minutes, lié à l'utilisateur, puis
+    vérification par `getChatMember` que la personne en est administratrice et que le bot a le
+    droit d'y publier ;
+  - token du bot : uniquement dans `.env`. Il figure dans l'URL de la Bot API, donc cette URL
+    n'est jamais journalisée ni conservée dans une exception.
 - Autres plateformes : mécanisme propre, documenté dans api-integration.md (`TO_VERIFY`).
 - Signature invalide : 401, **pas** de stockage du payload, compteur et alerte en cas de pic.
 - Doublon (violation de contrainte unique) : 200 sans retraitement.

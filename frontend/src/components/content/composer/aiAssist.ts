@@ -11,6 +11,7 @@ const HASHTAGS: Record<PlatformKey, string[]> = {
   x: ["conseil"],
   pinterest: [],
   threads: [],
+  telegram: [],
 }
 
 export function suggestHashtags(platform: PlatformKey): string[] {

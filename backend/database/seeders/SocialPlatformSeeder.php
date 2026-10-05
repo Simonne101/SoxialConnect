@@ -29,6 +29,8 @@ class SocialPlatformSeeder extends Seeder
             ['linkedin', 'LinkedIn', 'available', $caps(['text_post', 'image_post', 'video_post'], ['multi_image_post', 'webhooks'], ['account_analytics', 'post_analytics'])],
             ['x', 'X (Twitter)', 'available', $caps(['text_post', 'image_post', 'video_post'], ['multi_image_post', 'account_analytics', 'post_analytics', 'webhooks'])],
             ['pinterest', 'Pinterest', 'available', $caps(['image_post', 'video_post', 'account_analytics', 'post_analytics'], ['multi_image_post', 'native_scheduling', 'webhooks'])],
+            // Bot API : publication immédiate (la programmation est faite par SoxialConnect) ; pas de statistiques pour les bots.
+            ['telegram', 'Telegram', 'available', $caps(['text_post', 'image_post', 'multi_image_post', 'video_post', 'webhooks'])],
             ['threads', 'Threads', 'coming_soon', $caps(['text_post', 'image_post', 'video_post', 'account_analytics', 'post_analytics'], ['multi_image_post', 'webhooks'])],
         ];
 

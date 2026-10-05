@@ -2,11 +2,18 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Social\Actions\ConnectTelegramChat;
 use App\Domain\Social\Actions\DisconnectSocialAccount;
+use App\Domain\Social\Enums\SocialAccountStatus;
 use App\Domain\Social\OAuth\OAuthException;
 use App\Domain\Social\OAuth\OAuthStateStore;
 use App\Domain\Social\OAuth\TikTokOAuthProvider;
 use App\Domain\Social\OAuth\YouTubeOAuthProvider;
+use App\Domain\Social\Telegram\TelegramApiException;
+use App\Domain\Social\Telegram\TelegramBotClient;
+use App\Domain\Social\Telegram\TelegramChatInspector;
+use App\Domain\Social\Telegram\TelegramLinkException;
+use App\Domain\Social\Telegram\TelegramLinkStore;
 use App\Domain\Social\TikTok\TikTokApiException;
 use App\Domain\Social\TikTok\TikTokCreatorInfo;
 use App\Domain\Social\Tokens\TikTokTokenManager;
@@ -85,7 +92,28 @@ class SocialController extends Controller
         return ApiResponse::ok(['authorization_url' => $oauth->authorizationUrl($issued['state'])]);
     }
 
-    /** Relit le nom public du compte (YouTube, TikTok). */
+    /**
+     * POST /social/telegram/link : lien de liaison d'une chaîne ou d'un groupe Telegram
+     * (t.me/<bot>?start=<code>, code à usage unique valable 10 min, lié à l'utilisateur). La suite
+     * se passe dans Telegram ; le webhook enregistre la destination (TelegramUpdateHandler).
+     */
+    public function telegramLink(Request $request, TelegramBotClient $telegram, TelegramLinkStore $links): JsonResponse
+    {
+        Gate::authorize('create', SocialAccount::class);
+        if (! $telegram->canLinkChats()) {
+            return ApiResponse::error('La connexion Telegram n\'est pas encore configurée sur le serveur.', 409);
+        }
+
+        $code = $links->issueCode($request->user());
+
+        return ApiResponse::ok([
+            'link_url' => 'https://t.me/'.rawurlencode($telegram->botUsername()).'?start='.$code,
+            'bot_username' => $telegram->botUsername(),
+            'expires_at' => now()->addSeconds(TelegramLinkStore::TTL_SECONDS)->toIso8601String(),
+        ]);
+    }
+
+    /** Relit le nom public du compte (YouTube, TikTok) ou le titre et les droits du bot (Telegram). */
     public function sync(SocialAccount $account): JsonResponse
     {
         Gate::authorize('update', $account);
@@ -93,6 +121,7 @@ class SocialController extends Controller
         return match ($account->platform?->key) {
             YouTubeOAuthProvider::PROVIDER => $this->syncYouTube($account, app(YouTubeTokenManager::class), app(YouTubeOAuthProvider::class)),
             TikTokOAuthProvider::PROVIDER => $this->syncTikTok($account, app(TikTokTokenManager::class), app(TikTokOAuthProvider::class)),
+            ConnectTelegramChat::PROVIDER => $this->syncTelegram($account, app(TelegramBotClient::class), app(TelegramChatInspector::class)),
             default => ApiResponse::error('La synchronisation de ce réseau sera disponible avec son intégration officielle.', 409),
         };
     }
@@ -140,6 +169,45 @@ class SocialController extends Controller
         $account->forceFill(['last_synced_at' => now()])->save();
 
         return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), 'Compte synchronisé.');
+    }
+
+    /**
+     * Telegram : titre, nom public et droits RÉELS du bot relus auprès de Telegram. Droits
+     * perdus → destination « à reconnecter » ; droits rétablis → de nouveau connectée.
+     * Une destination déconnectée par l'utilisateur n'est jamais réactivée ici.
+     */
+    private function syncTelegram(SocialAccount $account, TelegramBotClient $telegram, TelegramChatInspector $inspector): JsonResponse
+    {
+        if (! $telegram->isConfigured()) {
+            return ApiResponse::error('La connexion Telegram n\'est pas encore configurée sur le serveur.', 409);
+        }
+        if ($account->status === SocialAccountStatus::Revoked) {
+            return ApiResponse::error('Cette destination a été déconnectée. Reconnectez-la depuis Telegram.', 409);
+        }
+
+        try {
+            $chat = $inspector->inspect($account->external_account_id);
+        } catch (TelegramLinkException $e) {
+            $account->forceFill([
+                'status' => SocialAccountStatus::Error,
+                'status_reason' => $e->getMessage(),
+                'last_error_at' => now(),
+                'last_synced_at' => now(),
+            ])->save();
+
+            return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), $e->getMessage());
+        } catch (TelegramApiException) {
+            return ApiResponse::error('Telegram est momentanément injoignable. Réessayez dans un instant.', 503);
+        }
+
+        $account->fill([
+            'display_name' => $chat['title'],
+            'username' => $chat['username'],
+            'metadata' => array_merge($account->metadata ?? [], ['chat_type' => $chat['type']]),
+        ]);
+        $account->forceFill(['status' => SocialAccountStatus::Connected, 'status_reason' => null, 'last_synced_at' => now()])->save();
+
+        return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), 'Destination synchronisée.');
     }
 
     private function syncTikTok(SocialAccount $account, TikTokTokenManager $tokens, TikTokOAuthProvider $oauth): JsonResponse

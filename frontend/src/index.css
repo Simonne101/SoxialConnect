@@ -86,6 +86,7 @@
   --color-x: #000000;
   --color-pinterest: #e60023;
   --color-threads: #000000;
+  --color-telegram: #26a5e4;
   --color-google: #4285f4;
 
   /* Ombres — très légères, comme la maquette */
@@ -248,6 +249,13 @@
   .thumb-10 { background: linear-gradient(135deg, #1d4350 0%, #a43931 100%); }
   .thumb-11 { background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); }
   .thumb-12 { background: linear-gradient(135deg, #5c258d 0%, #4389a2 100%); }
+  /* Texte courant des pages légales (/terms, /privacy, /legal/…) */
+  .legal-text {
+    @apply space-y-3 text-[15px] leading-relaxed text-ink-soft;
+  }
+  .legal-text ul {
+    @apply list-disc space-y-1.5 pl-5 marker:text-ink-muted;
+  }
 }
 
 @utility scrollbar-thin {

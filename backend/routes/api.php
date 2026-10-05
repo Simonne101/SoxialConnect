@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\MediaFileController;
 use App\Http\Controllers\Api\V1\MediaFolderController;
 use App\Http\Controllers\Api\V1\PostController;
 use App\Http\Controllers\Api\V1\SocialController;
+use App\Http\Controllers\Webhooks\TelegramWebhookController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Http\Controllers\AuthenticatedSessionController;
 use Laravel\Fortify\Http\Controllers\EmailVerificationNotificationController;
@@ -59,22 +60,34 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         ->withoutMiddleware('throttle:api')
         ->name('media.file');
 
+    // --- Webhook Telegram : authentifié par l'en-tête secret (pas de session) ; limite « webhooks ».
+    Route::post('webhooks/{platform}', TelegramWebhookController::class)
+        ->whereIn('platform', ['telegram'])
+        ->middleware('throttle:webhooks')
+        ->withoutMiddleware('throttle:api')
+        ->name('webhooks.telegram');
+
     // --- Ressources authentifiées ---------------------------------------------------------
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('users/me', [MeController::class, 'show'])->name('users.me');
         Route::patch('users/me', [MeController::class, 'update'])->name('users.me.update');
 
-        // Référentiel des plateformes (lecture seule, sans OAuth en phase 2).
+        // Référentiel des plateformes et comptes de l'utilisateur : lecture seule, accessible dès la
+        // création du compte (un nouvel utilisateur voit la liste vide et les réseaux à connecter).
+        // Connecter, synchroniser ou déconnecter un réseau exige une adresse vérifiée (groupe ci-dessous).
         Route::get('social/platforms', [SocialController::class, 'platforms'])->name('social.platforms');
+        Route::get('social/accounts', [SocialController::class, 'accounts'])->name('social.accounts');
 
         // Les données de contenu exigent une adresse e-mail vérifiée (docs/security.md §3).
         Route::middleware('verified')->group(function () {
             Route::get('dashboard/summary', [DashboardController::class, 'summary'])->name('dashboard.summary');
-            Route::get('social/accounts', [SocialController::class, 'accounts'])->name('social.accounts');
             // Connexion OAuth officielle (YouTube, TikTok) : limite « oauth » par utilisateur (docs/security.md §12).
             Route::post('social/{provider}/connect', [SocialController::class, 'connect'])
                 ->whereIn('provider', ['youtube', 'tiktok'])
                 ->middleware('throttle:oauth')->name('social.connect');
+            // Telegram (bot partagé, sans OAuth) : lien de liaison d'une chaîne ou d'un groupe.
+            Route::post('social/telegram/link', [SocialController::class, 'telegramLink'])
+                ->middleware('throttle:oauth')->name('social.telegram.link');
             Route::get('social/accounts/{account}/tiktok/creator-info', [SocialController::class, 'tiktokCreatorInfo'])
                 ->whereUuid('account')->name('social.accounts.tiktok.creator-info');
             Route::post('social/accounts/{account}/sync', [SocialController::class, 'sync'])

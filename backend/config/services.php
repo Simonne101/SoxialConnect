@@ -63,4 +63,23 @@ return [
         'chunk_size_mb' => 16,
     ],
 
+    /*
+     * Telegram (Bot API) — docs/publishing.md §13. UN bot partagé par toute la plateforme :
+     * son token reste uniquement dans .env (jamais en base, jamais renvoyé au frontend, jamais
+     * journalisé : il figure dans l'URL de chaque appel). Aucun token utilisateur.
+     * webhook_secret : en-tête X-Telegram-Bot-Api-Secret-Token exigé sur le webhook
+     * (1 à 256 caractères A-Z a-z 0-9 _ -). webhook_url : URL HTTPS publique du webhook
+     * (en local, via le tunnel : https://<domaine-du-tunnel>/api/v1/webhooks/telegram).
+     */
+    'telegram' => [
+        'bot_token' => env('TELEGRAM_BOT_TOKEN'),
+        'bot_username' => env('TELEGRAM_BOT_USERNAME'),
+        'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
+        'webhook_url' => env('TELEGRAM_WEBHOOK_URL'),
+        'api_base' => 'https://api.telegram.org',
+        // Limites du serveur Bot API officiel : 50 Mo par fichier envoyé, 10 Mo par photo.
+        'max_upload_mb' => 50,
+        'max_photo_mb' => 10,
+    ],
+
 ];

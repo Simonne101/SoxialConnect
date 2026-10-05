@@ -30,6 +30,8 @@ export default defineConfig(({ mode }) => {
         '/sanctum': { target: 'http://localhost:8000', changeOrigin: false },
         // Retours OAuth (/oauth/youtube/callback, /oauth/tiktok/callback) : même origine que la SPA, cookie de session inclus.
         '/oauth': { target: 'http://localhost:8000', changeOrigin: false },
+        // Lien de vérification de l'adresse e-mail (route web Laravel signée, cookie de session du site).
+        '/email/verify': { target: 'http://localhost:8000', changeOrigin: false },
       },
     },
     build: {

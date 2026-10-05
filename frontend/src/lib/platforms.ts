@@ -257,6 +257,29 @@ export const PLATFORMS: Record<PlatformKey, PlatformConfig> = {
       webhooks: "to_verify",
     }),
   },
+  telegram: {
+    key: "telegram",
+    name: "Telegram",
+    availability: "available",
+    // Texte seul : 4096 caractères ; avec un média, la légende est limitée à 1024 (TELEGRAM_CAPTION_LIMIT).
+    maxChars: 4096,
+    requiresMedia: false,
+    mediaHint: "Texte, une image, une vidéo MP4 ou un album de 2 à 10 médias (50 Mo par fichier)",
+    formats: [{ value: "feed", label: "Message" }],
+    preview: { width: 1280, height: 720, label: "Message", ratio: "16 / 9" },
+    variantFields: ["caption", "hashtags"],
+    accountRequirement: "Une chaîne ou un groupe Telegram dont vous êtes administrateur. Le bot SoxialConnect y est ajouté comme administrateur.",
+    permissions: [
+      { scope: "can_post_messages", label: "Publier des messages (bot administrateur)" },
+    ],
+    capabilities: cap({
+      text_post: "supported",
+      image_post: "supported",
+      multi_image_post: "supported",
+      video_post: "supported",
+      webhooks: "supported",
+    }),
+  },
   threads: {
     key: "threads",
     name: "Threads",
@@ -295,8 +318,15 @@ export const PLATFORM_ORDER: PlatformKey[] = [
   "linkedin",
   "x",
   "pinterest",
+  "telegram",
   "threads",
 ]
+
+/** Telegram : limites de la Bot API (vérifiées aussi par le serveur avant tout envoi). */
+export const TELEGRAM_CAPTION_LIMIT = 1024
+export const TELEGRAM_ALBUM_MAX = 10
+export const TELEGRAM_MAX_FILE_BYTES = 50 * 1024 * 1024
+export const TELEGRAM_MAX_PHOTO_BYTES = 10 * 1024 * 1024
 
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   text_post: "Texte seul",

@@ -12,6 +12,8 @@ import {
   type VariantDraft,
   defaultVariant,
   fromPost,
+  platformAccount,
+  telegramTextLimit,
   toDraftInput,
   validateComposer,
   variantText,
@@ -100,8 +102,10 @@ export default function ComposerPage() {
 
   const media = useMemo(() => values.mediaIds.map((id) => mediaMap[id]).filter(Boolean), [values.mediaIds, mediaMap])
   const tab = activeTab && values.platforms.includes(activeTab) ? activeTab : values.platforms[0]
-  const limit = values.platforms.length ? Math.min(...values.platforms.map((p) => PLATFORMS[p].maxChars)) : null
-  const limitPlatform = values.platforms.find((p) => PLATFORMS[p].maxChars === limit)
+  // Telegram : 4096 caractères, 1024 en légende d'un média.
+  const maxChars = (p: PlatformKey) => (p === "telegram" ? telegramTextLimit(values.mediaIds.length) : PLATFORMS[p].maxChars)
+  const limit = values.platforms.length ? Math.min(...values.platforms.map(maxChars)) : null
+  const limitPlatform = values.platforms.find((p) => maxChars(p) === limit)
 
   const togglePlatform = (p: PlatformKey) => {
     const selected = values.platforms.includes(p)
@@ -362,7 +366,8 @@ export default function ComposerPage() {
               </TabsList>
               {values.platforms.map((p) => {
                 const variant = values.variants[p] ?? defaultVariant(p)
-                const account = accounts.find((a) => a.platform === p)
+                const account = platformAccount(accounts, p, variant.accountId)
+                const accountChoices = p === "telegram" ? accounts.filter((a) => a.platform === p && a.status === "connected") : []
                 return (
                   <TabsContent key={p} value={p} className="pt-5">
                     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -371,6 +376,7 @@ export default function ComposerPage() {
                         variant={variant}
                         mainBody={values.body}
                         account={account}
+                        accountChoices={accountChoices}
                         media={media}
                         hashtagSuggestions={suggestHashtags(p)}
                         onChange={(patch) => updateVariant(p, patch)}

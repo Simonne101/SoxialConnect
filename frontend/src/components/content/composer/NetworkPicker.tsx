@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
 import { cn } from "@/lib/utils"
 import type { PlatformKey, SocialAccount } from "@/types"
+import { platformAccount } from "./model"
 
 /** Sélection des réseaux (maquette : rangée d'icônes « Sélectionner les réseaux »). */
 export function NetworkPicker({
@@ -20,7 +21,7 @@ export function NetworkPicker({
     <div>
       <ul className="flex flex-wrap gap-2.5" aria-label="Réseaux sociaux">
         {PLATFORM_ORDER.map((p) => {
-          const account = accounts.find((a) => a.platform === p)
+          const account = platformAccount(accounts, p)
           const cfg = PLATFORMS[p]
           const unavailable = cfg.availability !== "available" || !account || account.status === "disconnected" || account.status === "coming_soon"
           const warning = account && (account.status === "expired" || account.status === "permission_required" || account.status === "error")

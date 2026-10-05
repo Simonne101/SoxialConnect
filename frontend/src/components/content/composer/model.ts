@@ -1,6 +1,12 @@
 // Modèle du Composer : valeurs du formulaire (React Hook Form), validation par plateforme
 // et construction de la requête (future API POST /api/v1/posts).
-import { PLATFORMS } from "@/lib/platforms"
+import {
+  PLATFORMS,
+  TELEGRAM_ALBUM_MAX,
+  TELEGRAM_CAPTION_LIMIT,
+  TELEGRAM_MAX_FILE_BYTES,
+  TELEGRAM_MAX_PHOTO_BYTES,
+} from "@/lib/platforms"
 import { browserTimezone } from "@/lib/time"
 import type {
   MediaAsset,
@@ -17,6 +23,17 @@ export interface VariantDraft {
   body: string
   format: PostFormat
   options: VariantOptions
+  /** Compte ciblé quand le réseau en compte plusieurs (ex. chaînes et groupes Telegram). */
+  accountId?: string
+}
+
+/**
+ * Compte social ciblé pour un réseau : celui choisi dans la variante, sinon le premier compte
+ * connecté, sinon le premier compte du réseau (pour afficher son état).
+ */
+export function platformAccount(accounts: SocialAccount[], platform: PlatformKey, accountId?: string): SocialAccount | undefined {
+  const own = accounts.filter((a) => a.platform === platform)
+  return own.find((a) => a.id === accountId) ?? own.find((a) => a.status === "connected") ?? own[0]
 }
 
 export interface ComposerValues {
@@ -88,11 +105,13 @@ export function validateComposer(
     const cfg = PLATFORMS[p]
     const v = values.variants[p] ?? defaultVariant(p)
     const text = variantText(values, p)
-    const account = accounts.find((a) => a.platform === p)
+    const account = platformAccount(accounts, p, v.accountId)
     if (account && account.status !== "connected") {
       issues.push({ platform: p, level: "error", message: `${cfg.name} n'est pas prêt : ${(account.statusMessage ?? "reconnectez le compte").replace(/.$/, "")}.` })
     }
-    if (text.length > cfg.maxChars) {
+    if (p === "telegram") {
+      issues.push(...telegramIssues(text, media))
+    } else if (text.length > cfg.maxChars) {
       issues.push({ platform: p, level: "error", message: `${cfg.name} : le texte dépasse ${cfg.maxChars.toLocaleString("fr-FR")} caractères (${text.length.toLocaleString("fr-FR")}).` })
     }
     const videoOnly = p === "tiktok" || p === "youtube"
@@ -123,6 +142,30 @@ export function validateComposer(
   return issues
 }
 
+/** Limite du texte Telegram : 4096 caractères seul, 1024 en légende d'un média. */
+export function telegramTextLimit(mediaCount: number): number {
+  return mediaCount > 0 ? TELEGRAM_CAPTION_LIMIT : PLATFORMS.telegram.maxChars
+}
+
+/** Limites de la Bot API Telegram (mêmes refus que le serveur, avant tout envoi). */
+function telegramIssues(text: string, media: MediaAsset[]): Issue[] {
+  const issues: Issue[] = []
+  const add = (message: string) => issues.push({ platform: "telegram", level: "error", message: `Telegram : ${message}` })
+  const limit = telegramTextLimit(media.length)
+  if (text.length > limit) {
+    add(media.length > 0
+      ? `avec un média, le texte (légende) est limité à 1 024 caractères (${text.length.toLocaleString("fr-FR")}).`
+      : `le texte dépasse 4 096 caractères (${text.length.toLocaleString("fr-FR")}).`)
+  }
+  if (media.length > TELEGRAM_ALBUM_MAX) add("10 médias au maximum par publication (album).")
+  if (media.some((m) => m.type === "audio" || m.type === "document")) add("seules les images et les vidéos MP4 sont acceptées.")
+  if (media.some((m) => m.type === "video" && m.mimeType !== "video/mp4")) add("les vidéos doivent être au format MP4.")
+  if (media.some((m) => m.sizeBytes > TELEGRAM_MAX_FILE_BYTES)) add("chaque fichier est limité à 50 Mo.")
+  if (media.some((m) => m.type === "image" && !m.isGif && m.sizeBytes > TELEGRAM_MAX_PHOTO_BYTES)) add("chaque image est limitée à 10 Mo.")
+  if (media.length > 1 && media.some((m) => m.isGif)) add("un album ne peut pas contenir de GIF : publiez le GIF seul.")
+  return issues
+}
+
 export function toDraftInput(values: ComposerValues, accounts: SocialAccount[], scheduledAt: string | null): PostDraftInput {
   return {
     title: values.title.trim() || null,
@@ -134,7 +177,7 @@ export function toDraftInput(values: ComposerValues, accounts: SocialAccount[], 
       const v = values.variants[p] ?? defaultVariant(p)
       return {
         platform: p,
-        socialAccountId: accounts.find((a) => a.platform === p)?.id ?? "",
+        socialAccountId: platformAccount(accounts, p, v.accountId)?.id ?? "",
         format: v.format,
         body: v.customize ? v.body : null,
         options: v.options,
@@ -146,7 +189,7 @@ export function toDraftInput(values: ComposerValues, accounts: SocialAccount[], 
 export function fromPost(post: Post): ComposerValues {
   const variants: ComposerValues["variants"] = {}
   for (const v of post.variants) {
-    variants[v.platform] = { customize: v.body !== null, body: v.body ?? "", format: v.format, options: v.options }
+    variants[v.platform] = { customize: v.body !== null, body: v.body ?? "", format: v.format, options: v.options, accountId: v.socialAccountId }
   }
   return {
     title: post.title ?? "",

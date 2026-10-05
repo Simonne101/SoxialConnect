@@ -12,7 +12,7 @@ import { PLATFORMS } from "@/lib/platforms"
 import { ACCOUNT_STATUS } from "@/lib/status"
 import { cn } from "@/lib/utils"
 import type { MediaAsset, PlatformKey, SocialAccount, VariantOptions } from "@/types"
-import type { VariantDraft } from "./model"
+import { telegramTextLimit, type VariantDraft } from "./model"
 
 // Tableaux Pinterest fictifs (futur : GET boards via l'adaptateur Pinterest).
 const PINTEREST_BOARDS = ["Inspiration créative", "Moodboard automne", "Conseils créateurs"]
@@ -88,13 +88,15 @@ interface Props {
   variant: VariantDraft
   mainBody: string
   account: SocialAccount | undefined
+  /** Comptes connectés du réseau, quand on peut en choisir un (chaînes et groupes Telegram). */
+  accountChoices?: SocialAccount[]
   media: MediaAsset[]
   hashtagSuggestions: string[]
   onChange: (patch: Partial<VariantDraft>) => void
 }
 
 /** Panneau d'édition d'une variante : champs propres à chaque plateforme (docs UX-09). */
-export function VariantEditor({ platform, variant, mainBody, account, media, hashtagSuggestions, onChange }: Props) {
+export function VariantEditor({ platform, variant, mainBody, account, accountChoices = [], media, hashtagSuggestions, onChange }: Props) {
   const cfg = PLATFORMS[platform]
   const fields = cfg.variantFields
   const uid = useId()
@@ -119,8 +121,21 @@ export function VariantEditor({ platform, variant, mainBody, account, media, has
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label className="text-[13px] font-semibold" htmlFor={`${uid}-account`}>Compte</Label>
-          {account && account.entities.length > 1 ? (
+          <Label className="text-[13px] font-semibold" htmlFor={`${uid}-account`}>{platform === "telegram" ? "Chaîne ou groupe" : "Compte"}</Label>
+          {account && accountChoices.length > 1 ? (
+            <Select value={account.id} onValueChange={(id) => onChange({ accountId: id })}>
+              <SelectTrigger id={`${uid}-account`} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {accountChoices.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.accountType === "group" ? "Groupe" : "Chaîne"} · {a.displayName ?? a.username ?? a.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : account && account.entities.length > 1 ? (
             <Select value={variant.options.accountEntityId ?? account.entities[0].id} onValueChange={(v) => setOpt({ accountEntityId: v })}>
               <SelectTrigger id={`${uid}-account`} className="w-full">
                 <SelectValue />
@@ -189,7 +204,7 @@ export function VariantEditor({ platform, variant, mainBody, account, media, has
           <p id={`${uid}-body-hint`} className="text-xs text-ink-muted">
             {variant.customize ? `Texte spécifique à ${cfg.name}.` : "Identique au texte principal. Activez « Personnaliser » pour le modifier."}
           </p>
-          <Counter value={text.length + hashtagsLen} max={cfg.maxChars} />
+          <Counter value={text.length + hashtagsLen} max={platform === "telegram" ? telegramTextLimit(media.length) : cfg.maxChars} />
         </div>
       </div>
 

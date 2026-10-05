@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form"
 import { Link } from "react-router"
 import { toast } from "sonner"
 import { z } from "zod"
+import { ApiError, apiErrorMessage } from "@/lib/http"
 import { PlatformIcon } from "@/components/brand/PlatformIcon"
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
 import { Field, PasswordInput } from "@/components/shared/FormField"
@@ -155,11 +156,36 @@ export function SecurityPanel() {
   const revoke = useRevokeSession()
   const events = useSecurityEvents()
   const form = useForm<z.infer<typeof passwordSchema>>({ resolver: zodResolver(passwordSchema), defaultValues: { current: "", next: "", confirm: "" } })
-  const { register, handleSubmit, reset, formState } = form
+  const { register, handleSubmit, reset, setError, formState } = form
+
+  // Succès affiché UNIQUEMENT après la réponse positive du serveur. Erreurs de validation (422)
+  // placées sous le champ concerné ; autres erreurs (session expirée, trop de tentatives, réseau,
+  // serveur) en message global. Les mots de passe ne sont ni journalisés ni conservés.
+  const submitPassword = (values: z.infer<typeof passwordSchema>) =>
+    change.mutate(
+      { currentPassword: values.current, password: values.next, passwordConfirmation: values.confirm },
+      {
+        onSuccess: () => {
+          toast.success("Mot de passe modifié.")
+          reset()
+        },
+        onError: (error) => {
+          if (error instanceof ApiError && error.status === 422) {
+            const current = error.field("current_password")
+            const next = error.field("password")
+            // Message du serveur pour le mot de passe actuel non traduit : message français équivalent.
+            if (current) setError("current", { message: "Le mot de passe actuel est incorrect." }, { shouldFocus: true })
+            if (next) setError(/confirm/i.test(next) ? "confirm" : "next", { message: next }, { shouldFocus: !current })
+            if (current || next) return
+          }
+          toast.error(apiErrorMessage(error, "La modification du mot de passe a échoué. Réessayez."))
+        },
+      },
+    )
 
   return (
     <div className="space-y-6">
-      <form onSubmit={handleSubmit(() => change.mutate(undefined, { onSuccess: () => { toast.success("Mot de passe modifié. Vos autres sessions ont été déconnectées."); reset() } }))} noValidate>
+      <form onSubmit={handleSubmit(submitPassword)} noValidate>
         <Panel
           title="Mot de passe"
           description="Utilisez une phrase longue et unique, que vous n'utilisez sur aucun autre site."

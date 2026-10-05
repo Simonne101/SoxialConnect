@@ -34,6 +34,10 @@ export function useLogout() {
   })
 }
 
+export function useResendVerification() {
+  return useMutation({ mutationFn: auth.resendVerificationEmail })
+}
+
 export function useForgotPassword() {
   return useMutation({ mutationFn: auth.forgotPassword })
 }

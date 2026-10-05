@@ -545,8 +545,8 @@ export function LandingFooter() {
     {
       title: "Légal",
       links: [
-        ["Confidentialité", "/legal/privacy"],
-        ["Conditions d'utilisation", "/legal/terms"],
+        ["Politique de confidentialité", "/privacy"],
+        ["Conditions d'utilisation", "/terms"],
         ["Suppression des données", "/legal/data-deletion"],
       ],
     },

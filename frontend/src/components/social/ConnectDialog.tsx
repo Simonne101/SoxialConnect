@@ -13,7 +13,8 @@ import {
 import { useConnectAccount, useStartOAuth } from "@/hooks/queries/social"
 import { FeatureUnavailableError } from "@/lib/features"
 import { apiErrorMessage } from "@/lib/http"
-import { supportsOAuth } from "@/services/socialAccounts"
+import { supportsOAuth, supportsTelegramLink } from "@/services/socialAccounts"
+import { TelegramConnectDialog } from "./TelegramConnectDialog"
 import { PLATFORMS } from "@/lib/platforms"
 import type { SocialAccount } from "@/types"
 
@@ -42,6 +43,9 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
     }
     onOpenChange(o)
   }
+
+  // Telegram (backend branché) : liaison par le bot SoxialConnect, sans OAuth.
+  if (account && supportsTelegramLink(account.platform)) return <TelegramConnectDialog account={account} onOpenChange={onOpenChange} />
 
   return (
     <Dialog open={Boolean(account)} onOpenChange={close}>

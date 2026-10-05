@@ -9,6 +9,7 @@ export type PlatformKey =
   | "x"
   | "pinterest"
   | "threads"
+  | "telegram"
 
 export type PlatformAvailability = "available" | "coming_soon" | "disabled"
 
@@ -54,6 +55,8 @@ export type SocialAccountType =
   | "creator"
   | "channel"
   | "organization"
+  /** Groupe ou supergroupe Telegram. */
+  | "group"
 
 export interface SocialPermission {
   scope: string

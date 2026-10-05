@@ -100,8 +100,17 @@ Statuts du post, dans l'ordre d'évaluation :
 - Les données du job sont `variantId`, `trigger`, `triggeredBy`, `expectedAttempts` (le jeton)
   et `cycleAttempt`. Il ne contient aucun contenu ni secret.
 
-Worker local : `php artisan queue:work redis --queue=publishing,default,media --sleep=1 --timeout=300`.
-Il est lancé par `npm run dev`. Après un changement de code : `php artisan queue:restart`.
+Worker de **développement** (lancé par `npm run dev`) :
+`php artisan queue:listen redis --queue=publishing,default,media --sleep=1 --timeout=300 --memory=256`.
+
+- Chaque job s'exécute dans un processus PHP neuf (`queue:work --once`). Une modification du
+  code ou du `.env` est donc prise en compte dès le job suivant, sans redémarrage.
+- `--timeout` est réellement appliqué, y compris sous Windows.
+- **Ne lancez pas `php artisan queue:restart` pendant `npm run dev`.** C'est inutile, et le
+  lanceur arrêterait tout SoxialConnect en voyant son worker s'arrêter.
+
+Worker de **production** : `queue:work` (ou Horizon), processus permanent, avec redémarrage
+contrôlé au déploiement (`php artisan queue:restart`).
 
 ## 5. Idempotence et historique
 
@@ -193,7 +202,18 @@ L'audit enregistre `POST_PUBLISH_REQUESTED`, `POST_PUBLISH_RETRIED`, `POST_PUBLI
 1. Laragon : MySQL et Redis démarrés.
 2. `cd backend && php artisan migrate` (colonnes du moteur : migration `2026_09_30_100000`).
 3. Depuis la racine : `npm run dev`. Cette commande démarre l'API, le **worker**
-   (`[worker]`), le **planificateur** (`[cron]`, `schedule:work`) et le site.
+   (`[worker]`), le **planificateur** (`[cron]`, `schedule:work`) et le site. Ctrl + C arrête tout
+   ce qu'elle a lancé.
+   - Si SoxialConnect tourne déjà, l'instance existante est réutilisée : rien n'est lancé en double.
+   - Les processus restés orphelins (fenêtre fermée, plantage) sont nettoyés au lancement suivant.
+     Seuls ceux de ce projet sont concernés : processus enregistrés dans
+     `backend/storage/framework/cache/dev-launcher.json`, ou serveurs reconnus à leur commande.
+     Jamais d'autres processus PHP de la machine.
+   - Autres commandes :
+     - `npm run dev:status` : état, en lecture seule ;
+     - `npm run dev:stop` : arrêt ;
+     - `npm run dev:restart` : arrêt puis redémarrage ;
+     - `npm run dev -- --no-browser` : démarrage sans ouvrir le navigateur.
 4. Vérifier les files : `php artisan queue:monitor redis:publishing,redis:default,redis:media`.
 
 **Windows sans `npm run dev`** (serveur ou poste sans terminal ouvert) :
@@ -374,3 +394,106 @@ Google, puis les tokens sont effacés.
 | « Demande expirée » (`INVALID_STATE`) | Plus de 10 minutes sur Google, onglet rejoué, ou connexion ouverte avec un autre utilisateur SoxialConnect. |
 | `QUOTA_EXCEEDED` | Quota quotidien du projet atteint (10 000 unités par défaut ; un envoi en coûte environ 1 600). Réessayez le lendemain, ou demandez une extension. |
 | Vidéo verrouillée « privée » | Normal : c'est le choix de cette phase. Tant que le projet Google n'est pas audité, YouTube force aussi les vidéos en privé. |
+
+## 13. Telegram (Bot API, bot partagé)
+
+Un seul bot pour toute la plateforme. Son token reste dans `backend/.env` (`TELEGRAM_BOT_TOKEN`) :
+jamais en base, jamais dans le frontend, jamais dans les journaux. Il figure dans l'URL de chaque
+appel ; `TelegramBotClient` ne journalise donc jamais cette URL et ne chaîne jamais l'exception
+d'origine. Aucun token utilisateur, aucun OAuth.
+
+### Liaison d'une chaîne ou d'un groupe
+
+1. Réseaux sociaux › Telegram › Connecter : `POST /api/v1/social/telegram/link` renvoie
+   `https://t.me/<bot>?start=<code>`. Le code fait 48 caractères, il est à usage unique, valable
+   10 minutes et lié à l'utilisateur ; il est stocké en cache sous son empreinte SHA-256.
+2. Dans Telegram, « Démarrer » envoie `/start <code>`. Une session de liaison est alors ouverte
+   pour cette personne Telegram (10 minutes). Le bot répond avec deux boutons officiels
+   (`KeyboardButtonRequestChat`) : « Choisir une chaîne » et « Choisir un groupe ».
+   - Chaîne : la personne doit en être administratrice avec le droit de publier, et le bot y est
+     ajouté comme administrateur avec `can_post_messages`.
+   - Groupe : la personne doit en être administratrice, et le bot y est ajouté comme administrateur.
+3. Telegram envoie le message `chat_shared`. Le serveur vérifie lui-même, par `getChat` et
+   `getChatMember`, le type de conversation, les droits réels du bot et le statut de la personne
+   (propriétaire ou administratrice), puis `ConnectTelegramChat` crée ou réactive la destination.
+   Celle-ci est enregistrée dans `social_accounts` :
+   - `external_account_id` = `chat_id` ;
+   - `account_type` = `channel` ou `group` ;
+   - `display_name` = titre, `username` = `@nom` si la conversation est publique.
+4. La fenêtre de SoxialConnect relit la liste des comptes toutes les 3 secondes et affiche le résultat.
+
+Un utilisateur peut relier plusieurs chaînes et groupes. Dans le Composer, il en choisit un par publication.
+
+### Webhook
+
+`POST /api/v1/webhooks/telegram` :
+
+1. Contrôle de l'en-tête `X-Telegram-Bot-Api-Secret-Token`, comparé en temps constant à
+   `TELEGRAM_WEBHOOK_SECRET`. Une requête sans secret valide est refusée (403) ; sans secret
+   configuré, tout est refusé.
+2. Dédoublonnage par `update_id` (`webhook_events`).
+3. Réponse 200 immédiate, puis traitement en file `default` (`ProcessTelegramUpdate`).
+
+Seules les données utiles sont gardées ; aucun contenu de conversation n'est conservé.
+Mises à jour traitées :
+
+- `message` : `/start`, `chat_shared`, et la migration d'un groupe en supergroupe (nouvel identifiant) ;
+- `my_chat_member` : bot retiré ou rétrogradé (destination « à reconnecter »), puis rétabli
+  (destination de nouveau connectée).
+
+Une destination déconnectée par l'utilisateur n'est jamais réactivée automatiquement.
+
+### Publication (`TelegramPublisher`, synchrone)
+
+| Contenu | Méthode | Limites vérifiées avant tout envoi |
+|---|---|---|
+| Texte seul | `sendMessage` (texte brut, sans `parse_mode`) | 4096 caractères (unités UTF-16) |
+| Une image JPEG, PNG ou WebP | `sendPhoto` | légende ≤ 1024, 10 Mo |
+| Un GIF | `sendAnimation` | légende ≤ 1024, 50 Mo |
+| Une vidéo | `sendVideo` | MP4 uniquement, légende ≤ 1024, 50 Mo |
+| 2 à 10 images ou vidéos | `sendMediaGroup` (légende sur le premier élément) | 10 éléments au plus, sans GIF |
+
+- Les fichiers sont envoyés en multipart depuis le stockage privé : aucune URL publique.
+- Le nom d'origine du fichier n'est pas transmis.
+- Les hashtags choisis sont ajoutés en fin de texte s'ils n'y figurent pas déjà.
+- Succès : `external_post_id` = `message_id` (le premier message pour un album).
+- Lien du message :
+  - chaîne ou groupe public : `https://t.me/<nom>/<id>` ;
+  - privé (`-100…`) : `https://t.me/c/<id interne>/<id>` ;
+  - groupe simple : pas de lien.
+
+Classement des erreurs :
+
+| Erreur Telegram | Résultat |
+|---|---|
+| 429 (`retry_after`), connexion impossible avant l'envoi | Temporaire (nouvel essai automatique) |
+| 403 (bot retiré), 400 « not enough rights », « chat not found » | Définitive `PERMISSION_DENIED` ; destination « à reconnecter » |
+| 400 avec `migrate_to_chat_id` | Nouvel identifiant enregistré, puis nouvel essai automatique |
+| 400 texte trop long, média refusé, 413, 401 (token invalide) | Définitive |
+| 5xx, délai dépassé pendant l'envoi | Résultat inconnu : jamais relancé sans confirmation (Telegram n'a pas de clé d'idempotence) |
+
+Débit : environ 1 message par seconde par conversation et 20 par minute dans un groupe. Un
+dépassement renvoie 429 et donne lieu à un nouvel essai automatique. Programmation : assurée par
+SoxialConnect, car les bots n'ont pas de publication programmée.
+
+Déconnexion : seule la liaison est désactivée (statut `revoked`), et le bot reste dans la conversation.
+Une reconnexion réactive la même ligne.
+
+### Configuration
+
+```dotenv
+TELEGRAM_BOT_TOKEN=          # fourni par @BotFather (secret)
+TELEGRAM_BOT_USERNAME=       # nom du bot, sans @
+TELEGRAM_WEBHOOK_SECRET=     # 32 à 64 caractères [A-Za-z0-9_-]
+TELEGRAM_WEBHOOK_URL=https://<domaine-du-tunnel>/api/v1/webhooks/telegram
+```
+
+En local, le tunnel HTTPS mène à Vite (5173), qui relaie `/api` vers Laravel (8000). Une fois les
+variables renseignées, redémarrez `npm run dev` (le worker relit sa configuration), puis :
+
+```bash
+php artisan telegram:webhook --set   # enregistre l'URL et le secret auprès de Telegram
+php artisan telegram:webhook         # état : bot, URL, mises à jour en attente, dernière erreur
+```
+
+Si l'adresse du tunnel change, mettez à jour `TELEGRAM_WEBHOOK_URL`, puis relancez `--set`.

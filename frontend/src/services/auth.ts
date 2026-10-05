@@ -87,6 +87,15 @@ export async function forgotPassword(email: string): Promise<void> {
 }
 
 /** Utilisateur courant ; ApiError 401 si aucune session. */
+/** Renvoie le lien de vérification de l'adresse e-mail (POST /auth/email/verification-notification). */
+export async function resendVerificationEmail(): Promise<void> {
+  if (!isApiEnabled) {
+    await delay(400)
+    return
+  }
+  await http.post("/auth/email/verification-notification")
+}
+
 export async function currentUser(): Promise<UserProfile> {
   if (!isApiEnabled) {
     await delay(150)

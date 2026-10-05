@@ -12,6 +12,7 @@ import type {
 } from "@/types"
 import { buildAnalytics } from "@/mocks/analytics"
 import { mockActivity, mockSecurityEvents } from "@/mocks/user"
+import { http, isApiEnabled } from "@/lib/http"
 import { currentUser, updateCurrentUser } from "./auth"
 import { delay, store } from "./mockStore"
 
@@ -124,7 +125,27 @@ export async function updateNotificationPreferences(patch: Partial<NotificationP
   return structuredClone(store.notificationPreferences)
 }
 
-/** Simulation — aucun mot de passe n'est stocké ni transmis dans cette phase. */
-export async function changePassword(): Promise<void> {
-  await delay(700)
+export interface ChangePasswordInput {
+  currentPassword: string
+  password: string
+  passwordConfirmation: string
+}
+
+/**
+ * Changement de mot de passe : PUT /api/v1/auth/password (Fortify, session Sanctum). Le serveur
+ * vérifie le mot de passe actuel et la politique de mot de passe ; toute erreur (422, 401, 429,
+ * réseau, 5xx) est levée en ApiError — jamais de succès sans réponse positive du serveur.
+ * Les mots de passe ne sont ni journalisés ni conservés.
+ * Mode démonstration (sans backend) : aucun envoi, aucune donnée stockée.
+ */
+export async function changePassword(input: ChangePasswordInput): Promise<void> {
+  if (!isApiEnabled) {
+    await delay(700)
+    return
+  }
+  await http.put<unknown>("/auth/password", {
+    current_password: input.currentPassword,
+    password: input.password,
+    password_confirmation: input.passwordConfirmation,
+  })
 }

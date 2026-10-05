@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Domain\Users\Enums\UserStatus;
+use App\Notifications\VerifyEmailNotification;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -74,6 +75,16 @@ class User extends Authenticatable implements MustVerifyEmail
     public function isSuspended(): bool
     {
         return $this->status === UserStatus::Suspended;
+    }
+
+    /**
+     * E-mail de vérification mis en file (inscription et renvoi du lien) : une panne du serveur
+     * d'e-mail ne fait jamais échouer l'inscription après la création du compte. Le lien est
+     * calculé maintenant, sur l'origine utilisée par la personne (voir VerifyEmailNotification).
+     */
+    public function sendEmailVerificationNotification(): void
+    {
+        $this->notify(VerifyEmailNotification::for($this));
     }
 
     public function hasTwoFactorEnabled(): bool

@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { type KeyboardEvent, useEffect, useRef, useState } from "react"
+import { type FocusEvent, type KeyboardEvent, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { FeatureCard } from "./FeatureCard"
@@ -15,18 +15,31 @@ interface Layout {
   page: number
 }
 
-const prefersReducedMotion = () =>
-  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)"
+const prefersReducedMotion = () => typeof window !== "undefined" && window.matchMedia(REDUCED_MOTION).matches
+
+/** Défilement automatique : une carte toutes les 6 s ; reprise 6 s après une action manuelle. */
+const AUTOPLAY_MS = 6000
+const RESUME_AFTER_MS = 6000
 
 /**
  * Carrousel horizontal natif (défilement CSS scroll-snap) : swipe tactile, défilement fluide,
- * flèches clavier, boutons précédent / suivant et indicateurs de page. Aucun autoplay.
+ * flèches clavier, boutons précédent / suivant et indicateurs de page.
+ * Défilement automatique permanent : une carte toutes les 6 s, retour à la première après la
+ * dernière. Il attend 6 s après une action manuelle (glisser, molette, flèches, indicateurs) et
+ * s'arrête seulement hors de l'écran, onglet masqué ou pendant la navigation au clavier.
+ * « Réduire les animations » : le défilement continue, sans effet de glissement.
  * Le défilement est contenu dans la liste : jamais de défilement horizontal de la page.
  */
 export function FeatureCarousel({ items, label }: { items: FeatureItem[]; label: string }) {
   const scroller = useRef<HTMLUListElement>(null)
   const frame = useRef(0)
   const [layout, setLayout] = useState<Layout>({ step: 0, perView: 1, pages: items.length, page: 0 })
+  // Défilement automatique : conditions de pause (hors écran, clavier, action manuelle récente).
+  const [keyboardFocus, setKeyboardFocus] = useState(false)
+  const [onScreen, setOnScreen] = useState(false)
+  const [holdUntil, setHoldUntil] = useState(0)
+  const root = useRef<HTMLDivElement>(null)
 
   const measure = () => {
     const el = scroller.current
@@ -56,6 +69,61 @@ export function FeatureCarousel({ items, label }: { items: FeatureItem[]; label:
     }
   }, [])
 
+  // Visible à l'écran et onglet actif : sinon aucune avance automatique.
+  useEffect(() => {
+    const el = root.current
+    if (!el) return
+    let inView = false
+    const update = () => setOnScreen(inView && document.visibilityState === "visible")
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting
+      update()
+    }, { threshold: 0.35 })
+    observer.observe(el)
+    document.addEventListener("visibilitychange", update)
+    return () => {
+      observer.disconnect()
+      document.removeEventListener("visibilitychange", update)
+    }
+  }, [])
+
+  const { page, pages } = layout
+  const running = !keyboardFocus && onScreen && pages > 1
+
+  // Carte suivante toutes les AUTOPLAY_MS ; après la dernière, retour à la première.
+  // Mesures lues dans le DOM à chaque avance : toujours justes après un redimensionnement.
+  useEffect(() => {
+    if (!running) return
+    const advance = () => {
+      const el = scroller.current
+      const cards = el?.children
+      if (!el || !cards || cards.length < 2) return
+      const step = (cards[1] as HTMLElement).offsetLeft - (cards[0] as HTMLElement).offsetLeft
+      const max = el.scrollWidth - el.clientWidth
+      const left = el.scrollLeft >= max - 2 ? 0 : Math.min(el.scrollLeft + step, max)
+      el.scrollTo({ left, behavior: prefersReducedMotion() ? "auto" : "smooth" })
+    }
+    let interval = 0
+    const start = window.setTimeout(() => {
+      advance()
+      interval = window.setInterval(advance, AUTOPLAY_MS)
+    }, Math.max(AUTOPLAY_MS, holdUntil - Date.now()))
+    return () => {
+      window.clearTimeout(start)
+      window.clearInterval(interval)
+    }
+  }, [running, holdUntil])
+
+  /** Action manuelle : la lecture automatique attend avant de reprendre. */
+  const hold = () => setHoldUntil(Date.now() + RESUME_AFTER_MS)
+
+  const onFocus = (e: FocusEvent<HTMLDivElement>) => {
+    if (e.target.matches(":focus-visible")) setKeyboardFocus(true)
+  }
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setKeyboardFocus(false)
+  }
+
   const onScroll = () => {
     cancelAnimationFrame(frame.current)
     frame.current = requestAnimationFrame(measure)
@@ -73,13 +141,17 @@ export function FeatureCarousel({ items, label }: { items: FeatureItem[]; label:
     const keys: Record<string, number> = { ArrowLeft: layout.page - 1, ArrowRight: layout.page + 1, Home: 0, End: layout.pages - 1 }
     if (e.key in keys) {
       e.preventDefault()
+      hold()
       goTo(keys[e.key])
     }
   }
 
-  const { page, pages } = layout
   return (
-    <div>
+    <div
+      ref={root}
+      onFocus={onFocus}
+      onBlur={onBlur}
+    >
       <div
         role="region"
         aria-roledescription="carrousel"
@@ -91,6 +163,8 @@ export function FeatureCarousel({ items, label }: { items: FeatureItem[]; label:
         <ul
           ref={scroller}
           onScroll={onScroll}
+          onPointerDown={hold}
+          onWheel={hold}
           className={cn(
             // Débord jusqu'aux bords sur mobile (carte suivante visible), aligné sur la gouttière.
             "-mx-4 flex snap-x snap-mandatory scroll-px-4 gap-5 overflow-x-auto px-4 py-3 sm:mx-0 sm:scroll-px-0 sm:px-0",
@@ -117,7 +191,10 @@ export function FeatureCarousel({ items, label }: { items: FeatureItem[]; label:
             <button
               key={i}
               type="button"
-              onClick={() => goTo(i)}
+              onClick={() => {
+                hold()
+                goTo(i)
+              }}
               aria-label={`Afficher la page ${i + 1} sur ${pages}`}
               aria-current={i === page ? "true" : undefined}
               className="group inline-flex size-6 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -132,14 +209,15 @@ export function FeatureCarousel({ items, label }: { items: FeatureItem[]; label:
             </button>
           ))}
         </div>
-        <p className="sr-only" aria-live="polite">
+        {/* Annonce désactivée pendant la lecture automatique (pas d'annonce toutes les 5 s). */}
+        <p className="sr-only" aria-live={running ? "off" : "polite"}>
           Page {page + 1} sur {pages}
         </p>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => goTo(page - 1)} disabled={page <= 0} aria-label="Fonctionnalités précédentes">
+          <Button variant="outline" size="icon" onClick={() => { hold(); goTo(page - 1) }} disabled={page <= 0} aria-label="Fonctionnalités précédentes">
             <ChevronLeft />
           </Button>
-          <Button variant="outline" size="icon" onClick={() => goTo(page + 1)} disabled={page >= pages - 1} aria-label="Fonctionnalités suivantes">
+          <Button variant="outline" size="icon" onClick={() => { hold(); goTo(page + 1) }} disabled={page >= pages - 1} aria-label="Fonctionnalités suivantes">
             <ChevronRight />
           </Button>
         </div>

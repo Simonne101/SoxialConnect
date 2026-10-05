@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AssignRequestId;
+use App\Http\Middleware\RedirectIfAuthenticated;
 use App\Http\Middleware\RejectMalformedJson;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -41,6 +42,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(AssignRequestId::class);
         $middleware->append(SecurityHeaders::class);
         $middleware->api(prepend: [RejectMalformedJson::class]);
+
+        // « guest » : réponse JSON 409 (et non une redirection vers « / ») pour un utilisateur déjà
+        // connecté qui appelle connexion / inscription depuis la SPA (App\Http\Middleware\RedirectIfAuthenticated).
+        $middleware->alias(['guest' => RedirectIfAuthenticated::class]);
 
         // Invité sur une page web (lien de vérification d'e-mail) : renvoyé vers la connexion de la SPA.
         $middleware->redirectGuestsTo(fn () => rtrim((string) config('app.frontend_url'), '/').'/login');
