@@ -26,8 +26,10 @@ class SocialPlatformSeeder extends Seeder
             ['instagram', 'Instagram', 'available', $caps(['image_post', 'multi_image_post', 'video_post', 'reel_short', 'account_analytics', 'post_analytics', 'webhooks'], ['story'])],
             ['tiktok', 'TikTok', 'available', $caps([], ['image_post', 'account_analytics', 'post_analytics', 'webhooks'], ['video_post'])],
             ['youtube', 'YouTube', 'available', $caps(['native_scheduling', 'account_analytics', 'post_analytics'], ['reel_short', 'webhooks'], ['video_post'])],
-            ['linkedin', 'LinkedIn', 'available', $caps(['text_post', 'image_post', 'video_post'], ['multi_image_post', 'webhooks'], ['account_analytics', 'post_analytics'])],
-            ['x', 'X (Twitter)', 'available', $caps(['text_post', 'image_post', 'video_post'], ['multi_image_post', 'account_analytics', 'post_analytics', 'webhooks'])],
+            // V1 : profil personnel, texte seul (Share on LinkedIn). Images, vidéos, pages : à venir.
+            ['linkedin', 'LinkedIn', 'available', $caps(['text_post'], ['image_post', 'video_post'])],
+            // V1 : texte seul (POST /2/tweets). Images et vidéos (media.write) : à venir.
+            ['x', 'X (Twitter)', 'available', $caps(['text_post'], ['image_post', 'multi_image_post', 'video_post', 'account_analytics', 'post_analytics', 'webhooks'])],
             ['pinterest', 'Pinterest', 'available', $caps(['image_post', 'video_post', 'account_analytics', 'post_analytics'], ['multi_image_post', 'native_scheduling', 'webhooks'])],
             // Bot API : publication immédiate (la programmation est faite par SoxialConnect) ; pas de statistiques pour les bots.
             ['telegram', 'Telegram', 'available', $caps(['text_post', 'image_post', 'multi_image_post', 'video_post', 'webhooks'])],

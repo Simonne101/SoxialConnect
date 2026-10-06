@@ -237,3 +237,65 @@ Format : Decision / Context / Reason / Consequences / Status / Date.
   - Upload reprenable, lu en flux depuis le stockage privé. `privacyStatus` forcé à `private` pendant cette phase.
   - Timeout du job porté à 300 s (inférieur à `retry_after`).
 - **Status** : Accepted — 2026-09-30 (test réel en attente des identifiants Google)
+
+### ADR-042 — Fondations IA et Video Studio (phase 1)
+- **Context** : l'IA et le Video Studio sont simulés côté frontend ; le schéma vidéo existant ne couvre que le clipping.
+- **Decision** :
+  - `video_projects` reçoit un type `kind` : `composition` (studio par scènes, par défaut) ou `clipping` (existant ; les lignes déjà présentes passent en `clipping`). Statuts et source dépendent du type (CHECK).
+  - Nouvelles tables `video_scenes`, `video_tracks`, `video_render_jobs`. Les visuels et l'audio référencent `media` (pas de seconde médiathèque, RESTRICT).
+  - Isolation en base quand elle est exprimable : FK composite rendu → (projet, propriétaire). Sinon, règles applicatives documentées (database.md §3.6).
+  - Un seul rendu actif par projet (colonne générée unique) ; une piste au plus par type, soit 2 pistes.
+  - `ai_generations` : tâche `adapt`, colonnes `cost_estimate_micros` et `input_hash` (suivi d'usage et cache, sans facturation).
+  - `config/ai.php` : fournisseur et modèle par tâche depuis `.env`, budget, prix, cache. `config/video.php` : limites, formats, binaires FFmpeg, dossier temporaire.
+  - Files : `ai` sur la connexion `redis` ; `video` sur une connexion dédiée `redis-video` (`retry_after` 1 900 s, supérieur au rendu maximal de 1 800 s). Workers optionnels : `npm run dev -- --workers=ai,video`.
+- **Non implémenté** : fournisseurs IA, services, routes, jobs, rendu FFmpeg, interfaces. FFmpeg et FFprobe ne sont pas installés.
+- **Status** : Accepted — 2026-10-06
+
+### ADR-043 — OpenAI, fournisseur IA officiel (phase 1.5)
+- **Context** : ADR-011 laissait le choix du fournisseur ouvert ; la phase 1 a préparé `config/ai.php` sans fournisseur.
+- **Decision** :
+  - SoxialConnect utilise **OpenAI** comme fournisseur IA officiel (`AI_DEFAULT_PROVIDER=openai`).
+  - L'intégration utilise le **client HTTP Laravel existant** plutôt qu'un SDK OpenAI supplémentaire : aucune nouvelle dépendance, même modèle que les connecteurs LinkedIn, X et TikTok, tests avec `Http::fake`.
+  - API « Responses » (`POST /v1/responses`), recommandée par OpenAI pour les nouvelles intégrations ; `store=false` (OpenAI ne conserve pas les réponses).
+  - Architecture : `AiService` (`app/Domain/AI/AiService.php`) → contrat `AiProvider` (`app/Domain/AI/Contracts`) → `OpenAiProvider` (`app/Domain/AI/Providers`) → client HTTP Laravel. URL, authentification, format de requête et de réponse et codes d'erreur d'OpenAI restent dans `OpenAiProvider` ; le reste de l'application ne voit que `AiTextRequest`, `AiTextResult` et `AiProviderException`.
+  - Clé `OPENAI_API_KEY` **uniquement côté backend**, dans `.env` : jamais dans Git, le frontend, les journaux, les messages d'erreur (le message brut d'OpenAI, qui peut citer une partie de la clé, n'est jamais repris) ni les résultats.
+  - Modèle : `AI_DEFAULT_MODEL`, ou `AI_MODEL_<TÂCHE>` ; aucun modèle définitif imposé.
+  - Test réel séparé des tests automatisés : `php artisan ai:check` (requête de 16 tokens au plus, aucune écriture en base). Sans clé : « OPENAI_API_KEY non configurée. Test réel non exécuté. » Sans `AI_DEFAULT_MODEL`, modèle de test `gpt-6-luna` (le plus économique de la liste officielle au 2026-10-06), réservé à ce test.
+  - **FFmpeg et FFprobe** : requis uniquement pour la phase Rendu ; **non installés** pendant cette phase. Installation manuelle requise avant la phase Rendu (chemins dans `VIDEO_FFMPEG_BINARY` et `VIDEO_FFPROBE_BINARY`).
+- **Non implémenté** : générations métier (idées, contenu, adaptation, script), enregistrement dans `ai_generations`, file `ai`, interfaces.
+- **Status** : Accepted — 2026-10-06
+
+### ADR-044 — Video Studio : timeline et API (phase 2)
+- **Context** : la phase 1 a préparé le schéma ; l'éditeur doit gérer des pistes de tous types et des éléments placés dans le temps, sans seconde médiathèque.
+- **Decision** :
+  - **Modèle** : projet (format, résolution, cadence) → scènes (segments narratifs ordonnés) ; → assets (médias de la médiathèque rattachés, aucune copie) ; → pistes de timeline (`video`, `image`, `text`, `audio`, `overlay`, ordonnées en calques) → éléments (temps en **millisecondes** entières, `start_ms` / `duration_ms`, extrait `source_*`, propriétés en liste blanche) ; → rendus.
+  - `video_tracks` évolue (table vide, migration réversible) : de « piste audio, une par type » (ADR-042) à « piste de timeline » ; le média, l'extrait et le volume passent dans les éléments. Une seconde table de pistes aurait introduit deux notions concurrentes.
+  - Pas de renommage destructif : `title` (nom), `settings` (métadonnées), `finished_at`, statuts `rendering` / `succeeded` conservés.
+  - Statuts de projet : `draft`, `rendering`, `ready`, `failed`. Rendus : `queued`, `rendering`, `succeeded`, `failed`, `cancelled`.
+  - **Cohérence** : toute écriture passe par `VideoProjectLock` (verrou du projet + `lock_version`) dans une transaction ; services `VideoProjectService`, `VideoSceneService`, `VideoAssetService`, `VideoTimelineService`, `VideoRenderService`. `duration_ms` du projet = fin du dernier élément.
+  - **Isolation** : politiques (404 pour la ressource d'un autre compte), FK composites (assets, rendus), contrôles de projet pour chaque référence (asset, scène, piste).
+  - **Médiathèque** : seuls les médias utilisables du propriétaire sont rattachés ; un média utilisé par un rendu actif ne peut pas être supprimé (`ManageMedia::isInUse`) ; un média supprimé reste signalé indisponible.
+  - **API** (`/api/v1/video`, adresse vérifiée) :
+    - projets : `GET/POST /projects`, `GET/PATCH/DELETE /projects/{project}` ;
+    - scènes : `GET/POST /projects/{project}/scenes`, `PATCH/DELETE /scenes/{scene}` ;
+    - pistes : `GET/POST /projects/{project}/tracks`, `PATCH/DELETE /tracks/{track}` ;
+    - timeline : `GET /projects/{project}/timeline`, `POST /tracks/{track}/items`, `PATCH/DELETE /timeline-items/{item}` (un seul PATCH déplace, redimensionne ou modifie) ;
+    - médias du projet : `GET/POST /projects/{project}/assets`, `DELETE /assets/{asset}` ;
+    - rendus : `GET/POST /projects/{project}/renders`, `GET /renders/{render}`, `POST /renders/{render}/cancel`.
+  - **Rendu préparé, non implémenté** : la demande fige la timeline (`spec`, `soxial.render_spec.v1`, identifiants de médias seulement ; `spec_hash` sur la forme canonique) et pousse `RenderVideoJob` sur la file `video` (connexion `redis-video`). Le job termine le rendu en échec explicite : `RENDERER_UNAVAILABLE` (FFmpeg absent, détecté par `FfmpegBinary`) ou `RENDERER_NOT_IMPLEMENTED`. Aucun fichier n'est produit ni simulé.
+  - **Frontend** : `VideoStudioPage` (projets réels) et `VideoProjectPage` (scènes, médias, aperçu indicatif, timeline, inspecteur, rendus). L'ancienne simulation de découpage n'est plus affichée ; ses fichiers restent en place, inutilisés.
+- **État** : Phase 2 — timeline + API opérationnelles. Rendu : préparé mais non implémenté (FFmpeg non installé).
+- **Status** : Accepted — 2026-10-06
+
+### ADR-045 — Moteur de rendu vidéo FFmpeg (phase 3)
+- **Context** : la phase 2 préparait les rendus sans produire de fichier ; FFmpeg 9.0.2 et FFprobe sont désormais installés (Windows, chemin absolu configuré).
+- **Decision** :
+  - **Pipeline** : `POST /renders` fige la timeline (`spec`, empreinte canonique) ; `RenderVideoJob` (file `video`, connexion `redis-video`, 1 essai, timeout 1 800 s < `retry_after` 1 900 s) passe le rendu `queued → rendering` sous verrou, puis `FfmpegVideoRenderer` : sources revérifiées côté serveur (propriétaire du rendu, rattachées au projet, utilisables, fichier lisible), analyse FFprobe (flux attendus, extrait dans la durée), commande construite par `FfmpegCommandBuilder`, exécution dans un dossier isolé (`video.temp_path/{render}`), validation FFprobe du MP4 (MP4, H.264, AAC si son, dimensions, durée ± max(250 ms, 2 images)), vignette ; `VideoRenderService::complete` publie le MP4 comme **média normal** de la médiathèque (analyse antivirus comme un envoi, stockage privé, URL signée) puis `succeeded`.
+  - **Sécurité FFmpeg** : arguments en tableau (Symfony Process, aucun shell) ; entrées limitées au protocole `file` ; textes des utilisateurs dans des fichiers lus par `drawtext` (`textfile`, `expansion=none`) ; graphe de filtres lu depuis un fichier (`-/filter_complex`) ; fichiers annexes en chemins relatifs au dossier de travail. Aucun chemin local ni sortie brute de FFmpeg exposés (journal serveur seulement).
+  - **Rendu** : fond noir W×H ; pistes de l'arrière-plan au premier plan ; image/vidéo mises à l'échelle (`cover` = recadrage, `contain` = bandes), fondus d'entrée/sortie ; texte (`drawtext` : taille, couleur, position, alignement, ombre) ; sons (extrait, volume, décalage, mixage `amix`) ; sortie H.264 yuv420p + AAC 48 kHz, `+faststart`.
+  - **Progression** : indicative, lue sur `-progress` (temps encodé / durée), plafonnée à 99 % avant validation.
+  - **Annulation réelle** : vérifiée chaque seconde pendant l'encodage ; FFmpeg est arrêté (arbre de processus) ; rien n'est publié (contrôle sous verrou avant publication) ; dossier de travail supprimé.
+  - **Idempotence** : un job dupliqué ou relancé ne reprend jamais un rendu déjà pris ; une timeline identique (même empreinte) déjà rendue avec succès renvoie la vidéo existante sans recalcul.
+  - **Nettoyage** : dossier de travail supprimé dans tous les cas ; `video:purge-temp` (planifiée) rattrape les dossiers abandonnés.
+- **Limites** : pas de retour à la ligne automatique des textes, pas d'animation ni de transition entre plans au-delà des fondus, pas de fondu sur les textes, polices non choisies par l'utilisateur, posts longs > 90 s non pris en charge.
+- **Status** : Accepted — 2026-10-06

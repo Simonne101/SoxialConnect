@@ -7,6 +7,12 @@ use App\Http\Controllers\Api\V1\MediaFileController;
 use App\Http\Controllers\Api\V1\MediaFolderController;
 use App\Http\Controllers\Api\V1\PostController;
 use App\Http\Controllers\Api\V1\SocialController;
+use App\Http\Controllers\Api\V1\Video\VideoAssetController;
+use App\Http\Controllers\Api\V1\Video\VideoProjectController;
+use App\Http\Controllers\Api\V1\Video\VideoRenderController;
+use App\Http\Controllers\Api\V1\Video\VideoSceneController;
+use App\Http\Controllers\Api\V1\Video\VideoTimelineController;
+use App\Http\Controllers\Api\V1\Video\VideoTrackController;
 use App\Http\Controllers\Webhooks\TelegramWebhookController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Http\Controllers\AuthenticatedSessionController;
@@ -81,9 +87,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         // Les données de contenu exigent une adresse e-mail vérifiée (docs/security.md §3).
         Route::middleware('verified')->group(function () {
             Route::get('dashboard/summary', [DashboardController::class, 'summary'])->name('dashboard.summary');
-            // Connexion OAuth officielle (YouTube, TikTok) : limite « oauth » par utilisateur (docs/security.md §12).
+            // Connexion OAuth officielle (YouTube, TikTok, LinkedIn, X) : limite « oauth » par utilisateur (docs/security.md §12).
             Route::post('social/{provider}/connect', [SocialController::class, 'connect'])
-                ->whereIn('provider', ['youtube', 'tiktok'])
+                ->whereIn('provider', ['youtube', 'tiktok', 'linkedin', 'x'])
                 ->middleware('throttle:oauth')->name('social.connect');
             // Telegram (bot partagé, sans OAuth) : lien de liaison d'une chaîne ou d'un groupe.
             Route::post('social/telegram/link', [SocialController::class, 'telegramLink'])
@@ -105,6 +111,35 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 Route::post('publish', 'publish')->middleware('throttle:publish')->name('publish');
                 Route::post('retry', 'retry')->middleware('throttle:publish')->name('retry');
                 Route::get('attempts', 'attempts')->name('attempts');
+            });
+
+            // Video Studio (ADR-044) : projets, scènes, médias du projet, pistes, éléments de timeline,
+            // rendus. Toute ressource d'un autre compte répond 404 (politiques). Rendu : file
+            // redis-video, FFmpeg puis FFprobe, MP4 publié dans la médiathèque (ADR-045).
+            Route::prefix('video')->name('video.')->group(function () {
+                Route::apiResource('projects', VideoProjectController::class)
+                    ->parameters(['projects' => 'project'])->names('projects')->whereUuid('project');
+                Route::prefix('projects/{project}')->whereUuid('project')->name('projects.')->group(function () {
+                    Route::get('scenes', [VideoSceneController::class, 'index'])->name('scenes.index');
+                    Route::post('scenes', [VideoSceneController::class, 'store'])->name('scenes.store');
+                    Route::get('tracks', [VideoTrackController::class, 'index'])->name('tracks.index');
+                    Route::post('tracks', [VideoTrackController::class, 'store'])->name('tracks.store');
+                    Route::get('timeline', [VideoTimelineController::class, 'show'])->name('timeline');
+                    Route::get('assets', [VideoAssetController::class, 'index'])->name('assets.index');
+                    Route::post('assets', [VideoAssetController::class, 'store'])->name('assets.store');
+                    Route::get('renders', [VideoRenderController::class, 'index'])->name('renders.index');
+                    Route::post('renders', [VideoRenderController::class, 'store'])->middleware('throttle:publish')->name('renders.store');
+                });
+                Route::patch('scenes/{scene}', [VideoSceneController::class, 'update'])->whereUuid('scene')->name('scenes.update');
+                Route::delete('scenes/{scene}', [VideoSceneController::class, 'destroy'])->whereUuid('scene')->name('scenes.destroy');
+                Route::patch('tracks/{track}', [VideoTrackController::class, 'update'])->whereUuid('track')->name('tracks.update');
+                Route::delete('tracks/{track}', [VideoTrackController::class, 'destroy'])->whereUuid('track')->name('tracks.destroy');
+                Route::post('tracks/{track}/items', [VideoTimelineController::class, 'store'])->whereUuid('track')->name('items.store');
+                Route::patch('timeline-items/{item}', [VideoTimelineController::class, 'update'])->whereUuid('item')->name('items.update');
+                Route::delete('timeline-items/{item}', [VideoTimelineController::class, 'destroy'])->whereUuid('item')->name('items.destroy');
+                Route::delete('assets/{asset}', [VideoAssetController::class, 'destroy'])->whereUuid('asset')->name('assets.destroy');
+                Route::get('renders/{render}', [VideoRenderController::class, 'show'])->whereUuid('render')->name('renders.show');
+                Route::post('renders/{render}/cancel', [VideoRenderController::class, 'cancel'])->whereUuid('render')->name('renders.cancel');
             });
 
             // Médiathèque (upload : vérification d'e-mail + limite « uploads », docs/security.md §3 et §12).

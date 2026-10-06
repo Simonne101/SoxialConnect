@@ -43,7 +43,7 @@ export function ManageAccountSheet({
               <SheetHeader className="border-b border-border pb-4">
                 <div className="flex items-center gap-3">
                   <PlatformIcon platform={account.platform} size="lg" />
-                  <div>
+                  <div className="min-w-0">
                     <SheetTitle className="text-lg">{cfg.name}</SheetTitle>
                     <SheetDescription>{account.displayName ?? "Compte non connecté"}</SheetDescription>
                   </div>

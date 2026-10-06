@@ -25,12 +25,15 @@ import type { SocialAccount } from "@/types"
 const OAUTH_ERRORS: Record<string, (network: string) => string> = {
   ACCESS_DENIED: (n) => `Autorisation annulée sur ${n} : aucun compte n'a été connecté.`,
   SCOPE_DENIED: (n) => `La publication de vidéos n'a pas été autorisée sur ${n}. Reconnectez-vous en acceptant toutes les autorisations.`,
+  PUBLISH_SCOPE_DENIED: (n) => `La permission de publier n'a pas été accordée sur ${n}. Reconnectez-vous en acceptant toutes les autorisations.`,
   INVALID_STATE: () => "La demande de connexion a expiré ou n'est plus valide. Relancez la connexion.",
   NO_CHANNEL: () => "Ce compte Google n'a pas de chaîne YouTube. Créez une chaîne puis reconnectez-vous.",
   NOT_CONFIGURED: (n) => `La connexion ${n} n'est pas encore configurée sur le serveur.`,
   OAUTH_CLIENT_INVALID: (n) => `La configuration OAuth ${n} du serveur est invalide.`,
   NETWORK_ERROR: (n) => `${n} est momentanément injoignable. Réessayez dans un instant.`,
   TOKEN_REVOKED: (n) => `${n} a refusé l'autorisation (lien expiré). Relancez la connexion.`,
+  API_ACCESS_DENIED: (n) => `${n} refuse l'accès à son API pour SoxialConnect (offre ou crédits API). Contactez l'administrateur.`,
+  RATE_LIMITED: (n) => `${n} limite temporairement les requêtes. Réessayez dans quelques minutes.`,
 }
 
 function entitiesLabel(a: SocialAccount) {
@@ -139,7 +142,7 @@ export default function SocialAccountsPage() {
               return (
                 <li key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-3 py-4 xl:flex-nowrap">
                   <PlatformIcon platform={a.platform} size="lg" />
-                  <div className="min-w-0 flex-1 xl:w-48 xl:flex-none">
+                  <div className="min-w-0 flex-1 basis-32 xl:w-48 xl:flex-none">
                     <p className="font-semibold text-ink">{cfg.name}</p>
                     <p className="truncate text-xs text-ink-muted">
                       {a.platform === "telegram" && a.displayName

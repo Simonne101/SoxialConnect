@@ -39,7 +39,7 @@ return [
         'password', 'password_confirmation', 'current_password', 'new_password',
         'access_token', 'refresh_token', 'token', 'id_token', 'secret', 'client_secret',
         'api_key', 'apikey', 'authorization', 'cookie', 'set-cookie', 'session', 'x-xsrf-token',
-        'signed_request', 'code', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token',
+        'signed_request', 'code', 'code_verifier', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token',
         'access_token_encrypted', 'refresh_token_encrypted',
     ],
 

@@ -122,7 +122,7 @@ export default function OnboardingPage() {
         <section className="mt-10" aria-labelledby="step-custom">
           <h1 id="step-custom" className="text-2xl font-bold sm:text-[28px]">Personnalisez votre espace</h1>
           <p className="mt-2 text-sm text-ink-muted sm:text-base">Ces réglages servent à programmer vos publications à la bonne heure.</p>
-          <div className="mt-8 grid gap-6 sm:grid-cols-2">
+          <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="tz" className="text-[13px] font-semibold">Fuseau horaire</Label>
               <Select value={timezone} onValueChange={setTimezone}>

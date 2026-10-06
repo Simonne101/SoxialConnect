@@ -114,16 +114,18 @@ export function TelegramConnectDialog({ account, onOpenChange }: { account: Soci
             <ol className="space-y-2 rounded-xl bg-page p-4 text-sm text-ink-soft">
               <li><span className="font-semibold text-ink">1.</span> Ouvrez Telegram avec le bouton ci-dessous, puis appuyez sur « Démarrer ».</li>
               <li><span className="font-semibold text-ink">2.</span> Choisissez « Choisir une chaîne » ou « Choisir un groupe », puis la destination.</li>
-              <li><span className="font-semibold text-ink">3.</span> Acceptez d'ajouter @{pending.link.botUsername} comme administrateur (droit de publier pour une chaîne).</li>
+              <li><span className="font-semibold text-ink">3.</span> Acceptez d'ajouter <span className="wrap-anywhere">@{pending.link.botUsername}</span> comme administrateur (droit de publier pour une chaîne).</li>
             </ol>
             <Button asChild className="w-full">
               <a href={pending.link.linkUrl} target="_blank" rel="noopener noreferrer">
                 Ouvrir Telegram <ExternalLink />
               </a>
             </Button>
-            <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
-              <span className="min-w-0 flex-1 truncate text-xs text-ink-muted">{pending.link.linkUrl}</span>
-              <Button type="button" variant="ghost" size="sm" onClick={copy} aria-label="Copier le lien de connexion Telegram">
+            {/* Lien affiché en entier (coupé n'importe où) pour pouvoir être lu et sélectionné ; le bouton
+                passe sous le lien sur petit écran. */}
+            <div className="flex flex-col gap-1 rounded-lg border border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-2">
+              <span className="min-w-0 flex-1 text-xs text-ink-muted select-all wrap-anywhere">{pending.link.linkUrl}</span>
+              <Button type="button" variant="ghost" size="sm" onClick={copy} aria-label="Copier le lien de connexion Telegram" className="self-end sm:self-auto">
                 <Copy /> Copier
               </Button>
             </div>

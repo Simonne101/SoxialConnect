@@ -37,7 +37,7 @@ export default function LegalPage({ doc: forced }: { doc?: string }) {
 
           <nav aria-label="Sommaire" className="mt-8 rounded-xl border border-border bg-card p-5">
             <h2 className="text-sm font-semibold text-ink">Sommaire</h2>
-            <ol className="mt-3 grid gap-1.5 text-sm sm:grid-cols-2">
+            <ol className="mt-3 grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">
               {document.sections.map((s) => (
                 <li key={s.id}>
                   <a href={`#${s.id}`} className="text-ink-muted hover:text-brand-600">

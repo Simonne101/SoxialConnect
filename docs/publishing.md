@@ -497,3 +497,207 @@ php artisan telegram:webhook         # état : bot, URL, mises à jour en attent
 ```
 
 Si l'adresse du tunnel change, mettez à jour `TELEGRAM_WEBHOOK_URL`, puis relancez `--set`.
+
+## 14. LinkedIn (profil personnel, texte)
+
+Produits LinkedIn activés sur l'application : **Sign In with LinkedIn using OpenID Connect** et
+**Share on LinkedIn**. Sources officielles (learn.microsoft.com/linkedin) :
+`shared/authentication/authorization-code-flow`,
+`consumer/integrations/self-serve/sign-in-with-linkedin-v2` et
+`consumer/integrations/self-serve/share-on-linkedin`.
+
+### Variables d'environnement
+
+```dotenv
+LINKEDIN_CLIENT_ID=
+LINKEDIN_CLIENT_SECRET=      # secret : uniquement dans .env
+LINKEDIN_REDIRECT_URI=https://<domaine-du-tunnel>/oauth/linkedin/callback
+```
+
+L'URI doit être **identique** à celle déclarée dans le Developer Portal (onglet Auth), en HTTPS. En
+local, le tunnel mène à Vite (5173), qui relaie `/oauth` vers Laravel.
+
+### Connexion (OAuth 2.0 « Authorization Code »)
+
+1. Réseaux sociaux › LinkedIn › Connecter : `POST /api/v1/social/linkedin/connect`.
+   - Le serveur crée un `state` (`OAuthStateStore` : usage unique, 10 minutes, lié à l'utilisateur).
+   - Il renvoie `https://www.linkedin.com/oauth/v2/authorization`, avec les scopes
+     `openid profile email w_member_social`. Aucune permission d'organisation n'est demandée.
+2. Retour sur `GET /oauth/linkedin/callback` (`LinkedInCallbackController`, route web avec session),
+   qui traite dans l'ordre :
+   1. utilisateur connecté ;
+   2. `state` ;
+   3. erreur LinkedIn (`user_cancelled_login` et `user_cancelled_authorize` donnent `ACCESS_DENIED`) ;
+   4. échange du code (`POST /oauth/v2/accessToken`, en formulaire) ;
+   5. vérification de la permission `w_member_social` ;
+   6. identité (`GET https://api.linkedin.com/v2/userinfo`).
+3. `ConnectLinkedInAccount` crée ou met à jour le compte :
+   - `external_account_id` = `sub`, et l'auteur des publications est `urn:li:person:{sub}` ;
+   - `account_type` = `profile` ;
+   - `display_name` = nom, `username` = e-mail (optionnel) ;
+   - un seul token actif, chiffré ;
+   - les permissions réellement accordées.
+4. Retour vers `/social-accounts?oauth=linkedin&status=connected`, ou `status=error&code=…`.
+
+**Token :** l'accès dure **60 jours**. Il n'y a pas de refresh token : les refresh tokens
+programmatiques sont réservés à certains partenaires LinkedIn. À l'expiration, ou si LinkedIn
+refuse le token (401), le compte passe « à reconnecter ». L'utilisateur refait alors la connexion,
+et l'écran d'autorisation est souvent sauté s'il est toujours connecté à LinkedIn.
+
+**Déconnexion :** les tokens sont effacés localement. Aucun endpoint de révocation n'est utilisé ;
+l'utilisateur peut retirer l'accès depuis ses paramètres LinkedIn.
+
+### Publication (`LinkedInPublisher`)
+
+La V1 publie du **texte seul** via `POST https://api.linkedin.com/v2/ugcPosts`, avec l'en-tête
+`X-Restli-Protocol-Version: 2.0.0` :
+
+- `author` : `urn:li:person:{sub}` ;
+- `lifecycleState` : `PUBLISHED` ;
+- `shareCommentary` : le texte, suivi des hashtags choisis ;
+- `shareMediaCategory` : `NONE` ;
+- visibilité : `PUBLIC`.
+
+Succès : `201 Created`. L'identifiant du post vient de l'en-tête `X-RestLi-Id` (`urn:li:share:…`) ;
+le lien est `https://www.linkedin.com/feed/update/{urn}/`.
+
+| Réponse LinkedIn | Résultat |
+|---|---|
+| 401 | Définitif `TOKEN_INVALID` ; compte « à reconnecter » |
+| 403 | Définitif `PERMISSION_DENIED` |
+| 422 « duplicate » | Définitif `DUPLICATE_CONTENT` |
+| 400, autre 422 | Définitif `INVALID_REQUEST` |
+| 429 | Temporaire (nouvel essai automatique). Quota documenté : 150 requêtes par membre et par jour |
+| 5xx, délai dépassé pendant l'envoi | Résultat inconnu : jamais relancé sans confirmation (pas de clé d'idempotence) |
+| Connexion impossible avant l'envoi | Temporaire |
+
+Le jeton n'apparaît jamais dans les journaux, les tentatives ou les réponses de l'API : il est
+envoyé en en-tête, jamais dans une URL.
+
+### Limites actuelles
+
+- **Images et vidéos :** refusées avant tout envoi (`MEDIA_NOT_SUPPORTED`), et bloquées aussi dans le
+  Composer. Le flux d'upload documenté (`assets?action=registerUpload`, envoi du fichier, puis post)
+  sera intégré après vérification. La documentation parle d'un POST vers `uploadUrl` mais donne un
+  exemple en PUT, et ne dit rien de l'état de traitement de l'image.
+- **Pages d'entreprise (`organization`) :** non prises en charge. Elles exigent l'accès
+  « Community Management API », soumis à validation par LinkedIn.
+- **API utilisée :** `ugcPosts` est l'API documentée pour le produit « Share on LinkedIn ». LinkedIn
+  propose aussi la Posts API, versionnée (`/rest/posts`) : une migration sera à envisager si
+  `ugcPosts` est retirée.
+
+### Test réel
+
+1. Ouvrez SoxialConnect **via l'adresse ngrok** (le cookie de session doit être présent au retour
+   du callback).
+2. Ouvrez Réseaux sociaux › LinkedIn › Connecter, autorisez l'application, puis vérifiez que le
+   profil apparaît.
+3. Dans le Composer, cochez LinkedIn, vérifiez le compte, saisissez un **texte** sans média, puis
+   « Publier maintenant ».
+4. Vérifiez le statut « Publié » et ouvrez le lien vers le post sur LinkedIn.
+
+## 15. X (compte utilisateur, texte)
+
+Sources officielles (docs.x.com) : `resources/fundamentals/authentication/oauth-2-0/authorization-code`,
+`resources/fundamentals/authentication/oauth-2-0/user-access-token` et `x-api/users/get-my-user`.
+
+### Variables d'environnement
+
+```dotenv
+X_CLIENT_ID=
+X_CLIENT_SECRET=      # secret : uniquement dans .env
+X_REDIRECT_URI=https://<domaine-du-tunnel>/oauth/x/callback
+```
+
+Dans la console développeur X (User authentication settings) :
+
+- type d'application **Web App, Automated App or Bot** (client confidentiel) ;
+- permissions **Read and write** ;
+- Callback URI **identique** à `X_REDIRECT_URI`. X refuse `localhost` : en local, on passe par le
+  tunnel, qui mène à Vite (5173), qui relaie `/oauth` vers Laravel.
+
+L'API X est payante (facturation à l'usage) : sans offre ni crédits sur le compte développeur, X
+répond 402 ou 403 et la connexion échoue avec `API_ACCESS_DENIED`.
+
+### Connexion (OAuth 2.0 « Authorization Code » + PKCE)
+
+1. Réseaux sociaux › X › Connecter : `POST /api/v1/social/x/connect`.
+   - Le serveur crée un `state` et un vérificateur PKCE (`OAuthStateStore` : usage unique,
+     10 minutes, lié à l'utilisateur ; le vérificateur reste côté serveur).
+   - Il renvoie `https://x.com/i/oauth2/authorize` avec `code_challenge` (S256) et les scopes
+     `users.read tweet.read tweet.write offline.access`.
+2. Retour sur `GET /oauth/x/callback` (`XCallbackController`, route web avec session), qui traite
+   dans l'ordre :
+   1. utilisateur connecté ;
+   2. `state` (restitue le vérificateur PKCE) ;
+   3. erreur X (`access_denied` donne `ACCESS_DENIED`) ;
+   4. échange du code (`POST https://api.x.com/2/oauth2/token`, formulaire, client en HTTP Basic,
+      avec `code_verifier`) ;
+   5. vérification de la permission `tweet.write` ;
+   6. identité (`GET https://api.x.com/2/users/me?user.fields=profile_image_url`).
+3. `ConnectXAccount` crée ou met à jour le compte :
+   - `external_account_id` = identifiant X ;
+   - `account_type` = `profile` ;
+   - `display_name` = nom, `username` = `@identifiant`, photo dans `metadata.picture_url` ;
+   - un seul token actif, chiffré ;
+   - les permissions réellement accordées.
+4. Retour vers `/social-accounts?oauth=x&status=connected`, ou `status=error&code=…`.
+
+**Token (`XTokenManager`) :** l'accès dure **2 heures**. Le refresh token (scope `offline.access`)
+est à usage unique : à chaque renouvellement, X en renvoie un nouveau, qui remplace l'ancien dans
+la même écriture que le nouvel access token. Le renouvellement se fait sous verrou par compte, 10
+minutes avant l'expiration. Refresh token absent ou refusé : compte « à reconnecter », sans boucle.
+
+**Déconnexion :** révocation au mieux du refresh token puis de l'access token
+(`POST https://api.x.com/2/oauth2/revoke`), puis effacement des tokens locaux.
+
+### Publication (`XPublisher`)
+
+La V1 publie du **texte seul** via `POST https://api.x.com/2/tweets` (« Create Post »), corps
+`{ "text": … }`, avec le jeton de l'utilisateur (`Authorization: Bearer`, scope `tweet.write`)
+fourni par `XTokenManager`. Celui-ci le renouvelle si besoin ; l'adaptateur ne gère ni OAuth, ni
+refresh, ni chiffrement. Le texte envoyé est celui de la variante, suivi des hashtags choisis qui
+n'y figurent pas déjà. Publication immédiate et programmée passent par le moteur commun
+(`PublishPostVariantJob`, file `publishing`, `publishing:dispatch-due`).
+
+Succès : `201 Created`, `{ "data": { "id", "text" } }`. L'identifiant (`data.id`) est enregistré
+dans `external_post_id` ; le lien est `https://x.com/i/web/status/{id}` (lien permanent officiel,
+indépendant de l'@identifiant). Sans identifiant valide dans la réponse : résultat inconnu.
+
+**Longueur :** 280 caractères **selon le décompte de X** (NFC ; emoji et caractères CJK = 2 ;
+chaque URL = 23), calculé par `XPostLength` et par le Composer (`frontend/src/lib/xText.ts`). Au-delà,
+refus `TEXT_TOO_LONG` avant tout envoi : le texte n'est jamais tronqué. Les posts longs des
+abonnés X Premium ne sont pas gérés.
+
+| Réponse X | Résultat |
+|---|---|
+| Médias joints | Définitif `MEDIA_NOT_SUPPORTED`, aucun appel |
+| Texte vide / trop long | Définitif `EMPTY_CONTENT` / `TEXT_TOO_LONG`, aucun appel |
+| Refresh refusé par X | Définitif `TOKEN_REVOKED` ; compte « à reconnecter », tokens conservés |
+| 400 | Définitif `INVALID_REQUEST` |
+| 401 | Définitif `TOKEN_INVALID` ; compte « à reconnecter » |
+| 402, 403 `client-not-enrolled` | Définitif `API_ACCESS_DENIED` (offre ou crédits du compte développeur X) |
+| 403 « duplicate content » | Définitif `DUPLICATE_CONTENT` |
+| Autre 403 | Définitif `PERMISSION_DENIED` |
+| 429 | Temporaire `RATE_LIMITED` : nouvel essai selon `publishing.backoff` (60 s, 300 s), 3 tentatives au plus ; l'heure `x-rate-limit-reset` est conservée dans l'historique |
+| Autre 4xx (409…) | Définitif `HTTP_ERROR` |
+| 5xx, délai dépassé pendant l'envoi, réponse illisible | Résultat inconnu : jamais relancé sans confirmation (pas de clé d'idempotence) |
+| Connexion impossible avant l'envoi | Temporaire `NETWORK_ERROR` |
+
+L'historique (`publication_attempts.response_excerpt`) ne garde que `http_status`, `title`, `type`,
+`reason` et `detail` (tronqué) : jamais de jeton, ni l'identifiant client renvoyé par certaines erreurs.
+
+### Limites actuelles
+
+- **Images, vidéos, GIF :** refusés avant tout envoi et bloqués dans le Composer. Ils exigeront
+  l'envoi de médias (`/2/media/upload`) et le scope `media.write`, donc une reconnexion des comptes.
+- **Fils, sondages, réponses, citations :** non pris en charge.
+- **Limite de débit :** le moteur applique son propre backoff ; il ne patiente pas jusqu'à
+  `x-rate-limit-reset` si la fenêtre X est plus longue que les 3 tentatives automatiques.
+
+### Test réel
+
+1. Corrigez `X_REDIRECT_URI` dans `.env`, puis ouvrez SoxialConnect **via l'adresse ngrok**.
+2. Réseaux sociaux › X › Connecter, autorisez l'application, vérifiez le compte.
+3. Dans le Composer, cochez X, saisissez un **texte** sans média, puis « Publier maintenant ».
+4. Vérifiez le statut « Publié » et ouvrez le lien vers le post.

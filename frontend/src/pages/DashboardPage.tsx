@@ -11,7 +11,7 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader"
 import { SectionCard } from "@/components/shared/SectionCard"
 import { StatCard } from "@/components/shared/StatCard"
-import { CardsSkeleton, ErrorState } from "@/components/shared/States"
+import { CardsSkeleton, DemoNotice, ErrorState } from "@/components/shared/States"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -19,6 +19,7 @@ import { usePosts } from "@/hooks/queries/content"
 import { useActivity, useAnalytics, useDashboardSummary } from "@/hooks/queries/misc"
 import { useSocialAccounts } from "@/hooks/queries/social"
 import { formatCompact, formatPercent } from "@/lib/format"
+import { isApiEnabled } from "@/lib/http"
 import type { DashboardRange } from "@/services/misc"
 import type { AnalyticsPeriod } from "@/types"
 
@@ -65,6 +66,10 @@ export default function DashboardPage() {
           </>
         }
       />
+
+      {/* Indicateurs et graphique encore calculés côté navigateur (services/misc.ts) : signalés
+          comme tels tant que l'API Analytics n'est pas livrée, comme sur la page Analytics. */}
+      {isApiEnabled && <DemoNotice className="mb-4">Indicateurs de démonstration : les statistiques réelles de vos réseaux arriveront avec le module Analytics.</DemoNotice>}
 
       {summary.isLoading ? (
         <CardsSkeleton />

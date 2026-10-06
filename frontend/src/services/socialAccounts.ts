@@ -70,6 +70,8 @@ function find(id: string): SocialAccount {
 const CONSENT_PAGES: Partial<Record<PlatformKey, string>> = {
   youtube: "https://accounts.google.com/",
   tiktok: "https://www.tiktok.com/v2/auth/authorize/",
+  linkedin: "https://www.linkedin.com/oauth/v2/authorization",
+  x: "https://x.com/i/oauth2/authorize",
 }
 
 /** Réseaux connectables via OAuth officiel (backend branché). */

@@ -10,7 +10,7 @@ const DEFAULT_PER_PAGE = 20
 
 // --- Conversion API ↔ frontend (backend/app/Http/Resources/MediaResource.php) -----------------
 
-interface ApiMedia {
+export interface ApiMedia {
   id: string
   type: MediaType
   status: MediaStatus

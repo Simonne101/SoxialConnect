@@ -19,6 +19,7 @@ import {
   SocialAccountsPage,
   MediaPage,
   VideoStudioPage,
+  VideoProjectPage,
   AnalyticsPage,
   AIAssistantPage,
   NotificationsPage,
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
       // Pages légales publiques (URL officielles déclarées aux plateformes : TikTok, Google…).
       { path: "/terms", element: <LegalPage doc="terms" /> },
       { path: "/privacy", element: <LegalPage doc="privacy" /> },
+      { path: "/privacy-policy", element: <LegalPage doc="privacy" /> },
       { path: "/legal/:doc", element: <LegalPage /> },
       { path: "/design-system", element: <DesignSystemPage /> },
       {
@@ -67,6 +69,7 @@ export const router = createBrowserRouter([
           { path: "/social-accounts", element: <SocialAccountsPage /> },
           { path: "/media", element: <MediaPage /> },
           { path: "/video-studio", element: <VideoStudioPage /> },
+          { path: "/video-studio/:projectId", element: <VideoProjectPage /> },
           { path: "/analytics", element: <AnalyticsPage /> },
           { path: "/ai", element: <AIAssistantPage /> },
           { path: "/notifications", element: <NotificationsPage /> },

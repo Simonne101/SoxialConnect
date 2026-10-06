@@ -433,8 +433,9 @@ export default function ComposerPage() {
             <span className="hidden md:inline">Enregistrer comme brouillon</span>
           </Button>
           <div className="flex md:flex-none">
-            <Button type="button" className="flex-1 rounded-r-none md:flex-none" disabled={pending} onClick={() => submit("schedule")}>
-              <CalendarClock /> Programmer
+            {/* Très petits écrans (< 375 px) : icône masquée pour que le bouton tienne dans sa colonne. */}
+            <Button type="button" className="min-w-0 flex-1 rounded-r-none max-[374px]:px-2 md:flex-none" disabled={pending} onClick={() => submit("schedule")}>
+              <CalendarClock className="max-[374px]:hidden" /> Programmer
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

@@ -196,6 +196,9 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv11", "ss01";
+    /* Une chaîne insécable (URL, identifiant, nom de fichier) ne déborde jamais de sa ligne : coupée
+       seulement si elle ne tient pas, les mots ordinaires gardent leur césure naturelle (≠ break-all). */
+    overflow-wrap: break-word;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {

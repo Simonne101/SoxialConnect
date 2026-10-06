@@ -64,6 +64,29 @@ return [
     ],
 
     /*
+     * LinkedIn (Sign In with LinkedIn using OpenID Connect + Share on LinkedIn) —
+     * docs/publishing.md §14. Valeurs uniquement dans .env. redirect : URI HTTPS EXACTE déclarée
+     * dans le LinkedIn Developer Portal (local : https://<domaine-du-tunnel>/oauth/linkedin/callback).
+     */
+    'linkedin' => [
+        'client_id' => env('LINKEDIN_CLIENT_ID'),
+        'client_secret' => env('LINKEDIN_CLIENT_SECRET'),
+        'redirect' => env('LINKEDIN_REDIRECT_URI'),
+    ],
+
+    /*
+     * X (OAuth 2.0 Authorization Code + PKCE, client confidentiel) — docs/publishing.md §15.
+     * Valeurs uniquement dans .env. redirect : URI EXACTE déclarée dans la console développeur X
+     * (User authentication settings → Callback URI ; « localhost » y est refusé). Local, via le
+     * tunnel : https://<domaine-du-tunnel>/oauth/x/callback.
+     */
+    'x' => [
+        'client_id' => env('X_CLIENT_ID'),
+        'client_secret' => env('X_CLIENT_SECRET'),
+        'redirect' => env('X_REDIRECT_URI'),
+    ],
+
+    /*
      * Telegram (Bot API) — docs/publishing.md §13. UN bot partagé par toute la plateforme :
      * son token reste uniquement dans .env (jamais en base, jamais renvoyé au frontend, jamais
      * journalisé : il figure dans l'URL de chaque appel). Aucun token utilisateur.

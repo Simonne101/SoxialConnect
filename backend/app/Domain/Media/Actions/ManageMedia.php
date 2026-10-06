@@ -7,9 +7,11 @@ use App\Domain\Media\Enums\MediaStatus;
 use App\Domain\Media\Exceptions\MediaConflict;
 use App\Domain\Media\Support\MediaTag;
 use App\Domain\Media\Upload\MediaFileInspector;
+use App\Domain\Video\Enums\RenderStatus;
 use App\Models\Media;
 use App\Models\PostVariant;
 use App\Models\User;
+use App\Models\VideoProject;
 use App\Services\Audit\AuditAction;
 use App\Services\Audit\AuditLogger;
 use Illuminate\Support\Facades\DB;
@@ -76,6 +78,18 @@ final class ManageMedia
         return PostVariant::query()
             ->whereIn('status', array_map(fn (VariantStatus $s) => $s->value, self::BLOCKING_VARIANT_STATUSES))
             ->whereHas('post', fn ($post) => $post->whereHas('postMedia', fn ($pm) => $pm->where('media_id', $media->getKey())))
+            ->exists()
+            || $this->isUsedByActiveVideoRender($media);
+    }
+
+    /** Média d'un projet vidéo (asset ou fond de scène) dont un rendu est en file ou en cours (ADR-044). */
+    private function isUsedByActiveVideoRender(Media $media): bool
+    {
+        return VideoProject::query()
+            ->whereHas('renderJobs', fn ($q) => $q->whereIn('status', [RenderStatus::Queued->value, RenderStatus::Rendering->value]))
+            ->where(fn ($q) => $q
+                ->whereHas('assets', fn ($a) => $a->where('media_id', $media->getKey()))
+                ->orWhereHas('scenes', fn ($s) => $s->where('media_id', $media->getKey())))
             ->exists();
     }
 

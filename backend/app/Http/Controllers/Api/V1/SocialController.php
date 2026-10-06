@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Social\Actions\ConnectTelegramChat;
 use App\Domain\Social\Actions\DisconnectSocialAccount;
 use App\Domain\Social\Enums\SocialAccountStatus;
+use App\Domain\Social\OAuth\LinkedInOAuthProvider;
 use App\Domain\Social\OAuth\OAuthException;
 use App\Domain\Social\OAuth\OAuthStateStore;
 use App\Domain\Social\OAuth\TikTokOAuthProvider;
+use App\Domain\Social\OAuth\XOAuthProvider;
 use App\Domain\Social\OAuth\YouTubeOAuthProvider;
 use App\Domain\Social\Telegram\TelegramApiException;
 use App\Domain\Social\Telegram\TelegramBotClient;
@@ -16,7 +18,9 @@ use App\Domain\Social\Telegram\TelegramLinkException;
 use App\Domain\Social\Telegram\TelegramLinkStore;
 use App\Domain\Social\TikTok\TikTokApiException;
 use App\Domain\Social\TikTok\TikTokCreatorInfo;
+use App\Domain\Social\Tokens\LinkedInTokenManager;
 use App\Domain\Social\Tokens\TikTokTokenManager;
+use App\Domain\Social\Tokens\XTokenManager;
 use App\Domain\Social\Tokens\YouTubeTokenManager;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\SocialAccountResource;
@@ -30,7 +34,7 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * Plateformes de référence, comptes de l'utilisateur, et connexion OAuth officielle
- * (YouTube, TikTok). Aucun token n'est jamais renvoyé au frontend.
+ * (YouTube, TikTok, LinkedIn, X). Aucun token n'est jamais renvoyé au frontend.
  */
 class SocialController extends Controller
 {
@@ -48,7 +52,7 @@ class SocialController extends Controller
 
     /**
      * POST /social/{provider}/connect : démarre la connexion OAuth officielle du réseau demandé
-     * (route limitée à youtube|tiktok). Réponse : l'URL de consentement vers laquelle la SPA
+     * (route limitée à youtube|tiktok|linkedin|x). Réponse : l'URL de consentement vers laquelle la SPA
      * redirige le navigateur ; le retour arrive sur le callback web du réseau.
      */
     public function connect(Request $request, string $provider, OAuthStateStore $states): JsonResponse
@@ -56,7 +60,41 @@ class SocialController extends Controller
         return match ($provider) {
             YouTubeOAuthProvider::PROVIDER => $this->connectYouTube($request, $states, app(YouTubeOAuthProvider::class)),
             TikTokOAuthProvider::PROVIDER => $this->connectTikTok($request, $states, app(TikTokOAuthProvider::class)),
+            LinkedInOAuthProvider::PROVIDER => $this->connectLinkedIn($request, $states, app(LinkedInOAuthProvider::class)),
+            XOAuthProvider::PROVIDER => $this->connectX($request, $states, app(XOAuthProvider::class)),
         };
+    }
+
+    /**
+     * Démarre la connexion LinkedIn (authorization code) : state à usage unique lié à
+     * l'utilisateur, puis URL de consentement LinkedIn (scopes openid, profile, email, w_member_social).
+     */
+    public function connectLinkedIn(Request $request, OAuthStateStore $states, LinkedInOAuthProvider $oauth): JsonResponse
+    {
+        Gate::authorize('create', SocialAccount::class);
+        if (! $oauth->isConfigured()) {
+            return ApiResponse::error($oauth->notConfigured()->getMessage(), 409);
+        }
+
+        $issued = $states->issue($request->user(), LinkedInOAuthProvider::PROVIDER);
+
+        return ApiResponse::ok(['authorization_url' => $oauth->authorizationUrl($issued['state'])]);
+    }
+
+    /**
+     * Démarre la connexion X : state (usage unique, 10 min, lié à l'utilisateur) + PKCE S256, puis
+     * URL de consentement X (scopes users.read, tweet.read, tweet.write, offline.access).
+     */
+    public function connectX(Request $request, OAuthStateStore $states, XOAuthProvider $oauth): JsonResponse
+    {
+        Gate::authorize('create', SocialAccount::class);
+        if (! $oauth->isConfigured()) {
+            return ApiResponse::error($oauth->notConfigured()->getMessage(), 409);
+        }
+
+        $issued = $states->issue($request->user(), XOAuthProvider::PROVIDER);
+
+        return ApiResponse::ok(['authorization_url' => $oauth->authorizationUrl($issued['state'], $issued['verifier'])]);
     }
 
     /**
@@ -122,6 +160,8 @@ class SocialController extends Controller
             YouTubeOAuthProvider::PROVIDER => $this->syncYouTube($account, app(YouTubeTokenManager::class), app(YouTubeOAuthProvider::class)),
             TikTokOAuthProvider::PROVIDER => $this->syncTikTok($account, app(TikTokTokenManager::class), app(TikTokOAuthProvider::class)),
             ConnectTelegramChat::PROVIDER => $this->syncTelegram($account, app(TelegramBotClient::class), app(TelegramChatInspector::class)),
+            LinkedInOAuthProvider::PROVIDER => $this->syncLinkedIn($account, app(LinkedInTokenManager::class), app(LinkedInOAuthProvider::class)),
+            XOAuthProvider::PROVIDER => $this->syncX($account, app(XTokenManager::class), app(XOAuthProvider::class)),
             default => ApiResponse::error('La synchronisation de ce réseau sera disponible avec son intégration officielle.', 409),
         };
     }
@@ -208,6 +248,58 @@ class SocialController extends Controller
         $account->forceFill(['status' => SocialAccountStatus::Connected, 'status_reason' => null, 'last_synced_at' => now()])->save();
 
         return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), 'Destination synchronisée.');
+    }
+
+    /** LinkedIn : nom et e-mail relus (userinfo) ; le membre doit rester le même. */
+    private function syncLinkedIn(SocialAccount $account, LinkedInTokenManager $tokens, LinkedInOAuthProvider $oauth): JsonResponse
+    {
+        try {
+            $member = $oauth->fetchMember($tokens->accessTokenFor($account));
+        } catch (OAuthException $e) {
+            if ($e->requiresReconnect && $e->errorCode === 'TOKEN_INVALID') {
+                $tokens->rejected($account);
+            }
+
+            return ApiResponse::error($e->getMessage(), $e->transient ? 503 : 409);
+        }
+        if (! hash_equals((string) $account->external_account_id, $member['sub'])) {
+            return ApiResponse::error('L\'autorisation correspond désormais à un autre profil LinkedIn. Reconnectez le compte.', 409);
+        }
+        $account->fill(['display_name' => $member['name'], 'username' => $member['email']]);
+        $account->forceFill(['last_synced_at' => now()])->save();
+
+        return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), 'Compte synchronisé.');
+    }
+
+    /**
+     * X : nom, @identifiant et photo relus (users/me) ; le compte doit rester le même. Jeton refusé
+     * (401) : un seul renouvellement forcé, puis « à reconnecter » si X refuse aussi le refresh.
+     */
+    private function syncX(SocialAccount $account, XTokenManager $tokens, XOAuthProvider $oauth): JsonResponse
+    {
+        try {
+            try {
+                $profile = $oauth->fetchUser($tokens->accessTokenFor($account));
+            } catch (OAuthException $e) {
+                if ($e->errorCode !== 'TOKEN_INVALID') {
+                    throw $e;
+                }
+                $profile = $oauth->fetchUser($tokens->accessTokenFor($account, forceRefresh: true));
+            }
+        } catch (OAuthException $e) {
+            return ApiResponse::error($e->getMessage(), $e->transient ? 503 : 409);
+        }
+        if (! hash_equals((string) $account->external_account_id, $profile['id'])) {
+            return ApiResponse::error('L\'autorisation correspond désormais à un autre compte X. Reconnectez le compte.', 409);
+        }
+        $account->fill([
+            'display_name' => $profile['name'],
+            'username' => '@'.$profile['username'],
+            'metadata' => array_filter(array_merge($account->metadata ?? [], ['username' => $profile['username'], 'picture_url' => $profile['picture']])),
+        ]);
+        $account->forceFill(['last_synced_at' => now()])->save();
+
+        return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), 'Compte synchronisé.');
     }
 
     private function syncTikTok(SocialAccount $account, TikTokTokenManager $tokens, TikTokOAuthProvider $oauth): JsonResponse

@@ -79,6 +79,19 @@ return [
             'after_commit' => (bool) env('REDIS_QUEUE_AFTER_COMMIT', true),
         ],
 
+        // Rendus vidéo (ADR-042) : même Redis, connexion distincte pour un retry_after plus long que
+        // le rendu le plus long (config video.render.timeout_seconds). Un worker « video » doit
+        // utiliser CETTE connexion (`queue:work redis-video --queue=video`) : lancé sur « redis »,
+        // un rendu de plus de 360 s serait redonné à un autre worker pendant son exécution.
+        'redis-video' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => env('VIDEO_QUEUE', 'video'),
+            'retry_after' => (int) env('REDIS_VIDEO_QUEUE_RETRY_AFTER', 1900),
+            'block_for' => null,
+            'after_commit' => (bool) env('REDIS_QUEUE_AFTER_COMMIT', true),
+        ],
+
         'deferred' => [
             'driver' => 'deferred',
         ],

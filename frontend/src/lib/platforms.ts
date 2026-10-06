@@ -183,24 +183,23 @@ export const PLATFORMS: Record<PlatformKey, PlatformConfig> = {
     availability: "available",
     maxChars: 3000,
     requiresMedia: false,
-    mediaHint: "Texte, image ou vidéo",
+    // V1 : texte seul (Share on LinkedIn, ugcPosts). Images et vidéos : intégration ultérieure.
+    mediaHint: "Texte seul pour le moment (images et vidéos bientôt)",
     formats: [{ value: "feed", label: "Publication" }],
     preview: { width: 1200, height: 627, label: "Image paysage", ratio: "1.91 / 1" },
     variantFields: ["caption", "hashtags"],
-    accountRequirement: "Un profil LinkedIn ou une Page d'organisation dont vous êtes administrateur.",
+    accountRequirement: "Votre profil LinkedIn personnel. Les Pages d'entreprise arriveront plus tard (validation LinkedIn requise).",
+    // Scopes réellement demandés (Sign In with LinkedIn using OpenID Connect + Share on LinkedIn).
     permissions: [
+      { scope: "openid", label: "Vous identifier (OpenID Connect)" },
+      { scope: "profile", label: "Voir votre nom et votre photo" },
+      { scope: "email", label: "Voir votre adresse e-mail" },
       { scope: "w_member_social", label: "Publier en votre nom" },
-      { scope: "w_organization_social", label: "Publier sur vos Pages" },
-      { scope: "r_organization_social", label: "Lire l'activité des Pages" },
     ],
     capabilities: cap({
       text_post: "supported",
-      image_post: "supported",
-      multi_image_post: "to_verify",
-      video_post: "supported",
-      account_analytics: "requires_review",
-      post_analytics: "requires_review",
-      webhooks: "to_verify",
+      image_post: "to_verify",
+      video_post: "to_verify",
     }),
   },
   x: {
@@ -209,12 +208,13 @@ export const PLATFORMS: Record<PlatformKey, PlatformConfig> = {
     availability: "available",
     maxChars: 280,
     requiresMedia: false,
-    mediaHint: "Texte, jusqu'à 4 images ou une vidéo",
+    // V1 : texte seul (POST /2/tweets). Images et vidéos : intégration ultérieure.
+    mediaHint: "Texte seul pour le moment (images et vidéos bientôt)",
     // Format « Thread » (posts chaînés) retiré tant qu'aucun éditeur de fil n'existe dans le Composer.
     formats: [{ value: "feed", label: "Post" }],
     preview: { width: 1600, height: 900, label: "Image 16:9", ratio: "16 / 9" },
     variantFields: ["caption", "hashtags"],
-    accountRequirement: "Un compte X. L'API X est payante (coût à valider).",
+    accountRequirement: "Votre compte X. Publication de texte uniquement pour le moment (280 caractères selon le décompte de X).",
     permissions: [
       { scope: "tweet.write", label: "Publier des posts" },
       { scope: "tweet.read", label: "Lire vos posts" },
@@ -223,9 +223,9 @@ export const PLATFORMS: Record<PlatformKey, PlatformConfig> = {
     ],
     capabilities: cap({
       text_post: "supported",
-      image_post: "supported",
+      image_post: "to_verify",
       multi_image_post: "to_verify",
-      video_post: "supported",
+      video_post: "to_verify",
       account_analytics: "to_verify",
       post_analytics: "to_verify",
       webhooks: "to_verify",

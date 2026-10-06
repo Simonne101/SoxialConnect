@@ -30,5 +30,9 @@ export const qk = {
     all: ["video-projects"] as const,
     detail: (id: string) => ["video-projects", id] as const,
   },
+  studio: {
+    projects: ["studio", "projects"] as const,
+    project: (id: string) => ["studio", "project", id] as const,
+  },
   conversations: ["ai-conversations"] as const,
 }

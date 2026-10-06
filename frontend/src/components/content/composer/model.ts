@@ -8,6 +8,7 @@ import {
   TELEGRAM_MAX_PHOTO_BYTES,
 } from "@/lib/platforms"
 import { browserTimezone } from "@/lib/time"
+import { xWeightedLength } from "@/lib/xText"
 import type {
   MediaAsset,
   PlatformKey,
@@ -132,8 +133,22 @@ export function validateComposer(
     } else if (account.status !== "connected") {
       issues.push({ platform: p, level: "error", message: `${cfg.name} n'est pas prêt : ${(account.statusMessage ?? "reconnectez le compte").replace(/.$/, "")}.` })
     }
+    if (p === "x" && media.length > 0) {
+      // V1 : texte seul (le serveur refuse aussi les médias pour X, sans rien envoyer).
+      issues.push({ platform: p, level: "error", message: "X : les images et vidéos ne sont pas encore prises en charge. Retirez les médias ou décochez X." })
+    }
+    if (p === "linkedin" && media.length > 0) {
+      // V1 : texte seul (le serveur refuse aussi les médias pour LinkedIn, sans rien envoyer).
+      issues.push({ platform: p, level: "error", message: "LinkedIn : les images et vidéos ne sont pas encore prises en charge. Retirez les médias ou décochez LinkedIn." })
+    }
     if (p === "telegram") {
       issues.push(...telegramIssues(text, media))
+    } else if (p === "x") {
+      // Décompte de X (emoji et CJK = 2, URL = 23), identique à celui du serveur.
+      const length = xWeightedLength(text)
+      if (length > cfg.maxChars) {
+        issues.push({ platform: p, level: "error", message: `X : le texte dépasse ${cfg.maxChars} caractères selon le décompte de X (${length}).` })
+      }
     } else if (text.length > cfg.maxChars) {
       issues.push({ platform: p, level: "error", message: `${cfg.name} : le texte dépasse ${cfg.maxChars.toLocaleString("fr-FR")} caractères (${text.length.toLocaleString("fr-FR")}).` })
     }

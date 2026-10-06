@@ -10,6 +10,8 @@ enum AiTask: string
     case Ideas = 'ideas';
     case Hashtags = 'hashtags';
     case Rephrase = 'rephrase';
+    /** Adaptation d'un contenu à un réseau déjà pris en charge par le Composer. */
+    case Adapt = 'adapt';
     case Script = 'script';
     case Tone = 'tone';
     case VideoAnalysis = 'video_analysis';

@@ -5,6 +5,7 @@ namespace App\Domain\Social\Actions;
 use App\Domain\Social\Enums\SocialAccountStatus;
 use App\Domain\Social\Enums\TokenStatus;
 use App\Domain\Social\OAuth\TikTokOAuthProvider;
+use App\Domain\Social\OAuth\XOAuthProvider;
 use App\Domain\Social\OAuth\YouTubeOAuthProvider;
 use App\Models\SocialAccount;
 use App\Models\SocialToken;
@@ -23,6 +24,7 @@ final class DisconnectSocialAccount
     public function __construct(
         private readonly YouTubeOAuthProvider $youtube,
         private readonly TikTokOAuthProvider $tiktok,
+        private readonly XOAuthProvider $x,
         private readonly AuditLogger $audit,
     ) {}
 
@@ -45,6 +47,19 @@ final class DisconnectSocialAccount
             $token = $tokens->first(fn (SocialToken $t) => $t->status === TokenStatus::Active);
             if ($token !== null) {
                 $this->tiktok->revoke($token->access_token_encrypted);
+            }
+        }
+
+        if ($account->platform?->key === XOAuthProvider::PROVIDER && $this->x->isConfigured()) {
+            // X révoque chaque jeton séparément (POST /2/oauth2/revoke) : refresh token puis access
+            // token, au mieux. Un échec (réseau, jeton déjà expiré) n'empêche pas la déconnexion
+            // locale ; l'utilisateur peut aussi retirer l'accès depuis ses paramètres X.
+            $token = $tokens->first(fn (SocialToken $t) => $t->status === TokenStatus::Active);
+            if ($token?->refresh_token_encrypted !== null) {
+                $this->x->revoke($token->refresh_token_encrypted, 'refresh_token');
+            }
+            if ($token !== null) {
+                $this->x->revoke($token->access_token_encrypted, 'access_token');
             }
         }
 

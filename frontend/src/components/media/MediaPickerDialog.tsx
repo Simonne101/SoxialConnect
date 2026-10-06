@@ -20,20 +20,26 @@ import { UploadQueuePanel } from "./UploadQueuePanel"
 import { MediaThumb } from "./MediaThumb"
 
 const PICKER_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
+const AUDIO_ACCEPT = "audio/mpeg,audio/mp4,audio/x-m4a,audio/wav"
 
-/** Sélection de médias depuis la médiathèque (ou import) pour le Composer. */
+/**
+ * Sélection de médias depuis la médiathèque (ou import) : Composer (images, vidéos) et Video Studio
+ * (allowAudio : sons et musiques en plus). Par défaut, comportement inchangé pour le Composer.
+ */
 export function MediaPickerDialog({
   open,
   onOpenChange,
   initial,
   onConfirm,
+  allowAudio = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   initial: string[]
   onConfirm: (ids: string[]) => void
+  allowAudio?: boolean
 }) {
-  const [type, setType] = useState<"all" | "image" | "video">("all")
+  const [type, setType] = useState<"all" | "image" | "video" | "audio">("all")
   const [search, setSearch] = useState("")
   const deferred = useDeferredValue(search)
   const [page, setPage] = useState(1)
@@ -42,7 +48,7 @@ export function MediaPickerDialog({
   const uploadFiles = useUploadFiles()
   // Images et vidéos seulement (publiables) ; « all » exclut audio et documents côté affichage.
   const { data, isLoading, isError, isFetching, refetch } = useMedia({ type, search: deferred, page, perPage: 20 })
-  const items = (data?.items ?? []).filter((m) => m.type === "image" || m.type === "video")
+  const items = (data?.items ?? []).filter((m) => m.type === "image" || m.type === "video" || (allowAudio && m.type === "audio"))
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
 
@@ -69,9 +75,10 @@ export function MediaPickerDialog({
               { value: "all", label: "Tous" },
               { value: "image", label: "Images" },
               { value: "video", label: "Vidéos" },
+              ...(allowAudio ? [{ value: "audio" as const, label: "Sons" }] : []),
             ]}
           />
-          <input ref={fileRef} type="file" multiple accept={PICKER_ACCEPT} className="sr-only" onChange={(e) => void onFiles(e.target.files)} tabIndex={-1} aria-hidden="true" />
+          <input ref={fileRef} type="file" multiple accept={allowAudio ? `${PICKER_ACCEPT},${AUDIO_ACCEPT}` : PICKER_ACCEPT} className="sr-only" onChange={(e) => void onFiles(e.target.files)} tabIndex={-1} aria-hidden="true" />
           <Button variant="outline" onClick={() => fileRef.current?.click()}>
             <Upload /> Importer depuis l'ordinateur
           </Button>

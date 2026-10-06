@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { PLATFORMS } from "@/lib/platforms"
 import { ACCOUNT_STATUS } from "@/lib/status"
 import { cn } from "@/lib/utils"
+import { xWeightedLength } from "@/lib/xText"
 import type { MediaAsset, PlatformKey, SocialAccount, VariantOptions } from "@/types"
 import { accountLabel, telegramTextLimit, type VariantDraft } from "./model"
 
@@ -104,6 +105,10 @@ export function VariantEditor({ platform, variant, mainBody, account, accountCho
   const textLabel = fields.includes("description") ? "Description" : "Texte de la publication"
   const text = variant.customize ? variant.body : mainBody
   const hashtagsLen = (variant.options.hashtags ?? []).reduce((n, t) => n + t.length + 2, 0)
+  // X : décompte de X (emoji et CJK = 2, URL = 23) sur le texte réellement envoyé, hashtags compris.
+  const tags = variant.options.hashtags ?? []
+  const sent = tags.length ? `${text.trimEnd()}\n\n${tags.map((t) => `#${t}`).join(" ")}` : text
+  const length = platform === "x" ? xWeightedLength(sent) : text.length + hashtagsLen
   const videos = media.filter((m) => m.type === "video")
   const images = media.filter((m) => m.type === "image")
 
@@ -205,7 +210,7 @@ export function VariantEditor({ platform, variant, mainBody, account, accountCho
           <p id={`${uid}-body-hint`} className="text-xs text-ink-muted">
             {variant.customize ? `Texte spécifique à ${cfg.name}.` : "Identique au texte principal. Activez « Personnaliser » pour le modifier."}
           </p>
-          <Counter value={text.length + hashtagsLen} max={platform === "telegram" ? telegramTextLimit(media.length) : cfg.maxChars} />
+          <Counter value={length} max={platform === "telegram" ? telegramTextLimit(media.length) : cfg.maxChars} />
         </div>
       </div>
 
