@@ -56,7 +56,8 @@ RUN git clone --depth 1 --branch "${WHISPER_CPP_VERSION}" https://github.com/ggm
     && cmake --build /build --config Release --target whisper-cli -j"$(nproc)" \
     && install -D /build/bin/whisper-cli /opt/whisper/bin/whisper-cli \
     && curl -fsSL -o /opt/whisper/models/ggml-base.bin --create-dirs https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin \
-    && echo "${WHISPER_MODEL_SHA256}  /opt/whisper/models/ggml-base.bin" | sha256sum -c -
+    && echo "${WHISPER_MODEL_SHA256}  /opt/whisper/models/ggml-base.bin" | sha256sum -c - \
+    && chmod -R a+rX /opt/whisper
 
 # --- yt-dlp : exécutable officiel, empreinte vérifiée (désactivé par défaut : CLIPPER_YTDLP_ENABLED=false) ----------
 FROM debian:trixie-slim@${DEBIAN_DIGEST} AS ytdlp
