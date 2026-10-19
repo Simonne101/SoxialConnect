@@ -79,7 +79,7 @@ class FfmpegVideoRenderer
     public function produce(array $spec, array $sources, array $hasAudio, RenderWorkspace $workspace, Closure $onProgress, Closure $shouldCancel): RenderedVideo
     {
         $output = $workspace->path('output', 'video.mp4');
-        $command = $this->builder->build($spec, $sources, $hasAudio, $output);
+        $command = $this->builder->forVersion($this->binaries->version())->build($spec, $sources, $hasAudio, $output);
 
         foreach ($command->files as $name => $contents) {
             file_put_contents($workspace->path('work', $name), $contents);

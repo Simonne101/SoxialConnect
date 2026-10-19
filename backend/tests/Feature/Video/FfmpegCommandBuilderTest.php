@@ -92,4 +92,49 @@ class FfmpegCommandBuilderTest extends TestCase
 
         $this->assertEquals($build(), $build());
     }
+
+    /** Sous-titre du Clipper (fond « box ») : seul cas qui demande text_align. */
+    private function subtitled(?string $version): array
+    {
+        $command = (new FfmpegCommandBuilder)->forVersion($version)->build($this->spec([
+            $this->track('text', [$this->item('text', ['properties' => ['text' => 'Bonjour', 'box' => true]])]),
+        ]), [], [], 'o.mp4');
+
+        return ['arguments' => $command->arguments, 'files' => $command->files];
+    }
+
+    public static function versions(): array
+    {
+        return [
+            'Debian bookworm (image worker initiale)' => ['ffmpeg version 5.1.9-0+deb12u1 Copyright (c) 2000-2026 the FFmpeg developers', '-filter_complex_script', false],
+            'FFmpeg 6.0' => ['ffmpeg version 6.0-static https://johnvansickle.com/ffmpeg/', '-filter_complex_script', false],
+            'Ubuntu 24.04 (CI)' => ['ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers', '-filter_complex_script', true],
+            'Debian trixie (image worker)' => ['ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers', '-/filter_complex', true],
+            'compilation « n7.1 »' => ['ffmpeg version n7.1-12-gabcdef Copyright (c) 2000-2024', '-/filter_complex', true],
+            'poste de développement' => ['ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026', '-/filter_complex', true],
+            'compilation de développement' => ['ffmpeg version N-118000-g0123456 Copyright (c) 2000-2026', '-/filter_complex', true],
+            'version inconnue' => [null, '-/filter_complex', true],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('versions')]
+    public function test_the_command_syntax_follows_the_ffmpeg_version(?string $version, string $filterOption, bool $textAlign): void
+    {
+        $command = $this->subtitled($version);
+
+        $this->assertContains($filterOption, $command['arguments'], 'Option de lecture du graphe de filtres.');
+        $this->assertSame('filter.txt', $command['arguments'][array_search($filterOption, $command['arguments'], true) + 1]);
+        $this->assertNotContains($filterOption === '-/filter_complex' ? '-filter_complex_script' : '-/filter_complex', $command['arguments']);
+        $this->assertSame($textAlign, str_contains($command['files']['filter.txt'], 'text_align=C'), 'text_align seulement à partir de FFmpeg 6.1.');
+        $this->assertStringContainsString('box=1:boxcolor=black@0.55', $command['files']['filter.txt'], 'Fond des sous-titres conservé dans tous les cas.');
+    }
+
+    public function test_the_version_does_not_change_anything_else(): void
+    {
+        $old = $this->subtitled('ffmpeg version 5.1.9-0+deb12u1');
+        $new = $this->subtitled('ffmpeg version 9.0.2');
+
+        $normalize = fn (array $c) => [array_values(array_diff($c['arguments'], ['-filter_complex_script', '-/filter_complex'])), str_replace(':text_align=C', '', $c['files']['filter.txt'])];
+        $this->assertSame($normalize($new), $normalize($old));
+    }
 }

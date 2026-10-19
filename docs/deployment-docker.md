@@ -23,7 +23,7 @@ Internet ──443/80──▶ web (Nginx, non root : SPA + relais FastCGI)
 | `app` | API (PHP-FPM, 12 processus au plus) | 1 Go |
 | `worker-default` | publications, médias, statistiques | 768 Mo |
 | `worker-ai` | appels aux fournisseurs IA | 768 Mo |
-| `worker-video` | rendus FFmpeg, Remotion (Chrome), whisper : un à la fois | 3 Go (+ `shm` 1 Go) |
+| `worker-video` | rendus FFmpeg 7.1 (Debian trixie), Remotion (Chrome), whisper : un à la fois | 3 Go (+ `shm` 1 Go) |
 | `scheduler` | `schedule:work` (publications à échéance, purges, statistiques, contrôle des binaires) | 512 Mo |
 | `mysql` | base de données | 1,5 Go |
 | `redis` | cache, verrous, files (`noeviction`, AOF) | 640 Mo |
@@ -107,6 +107,8 @@ cd /srv/soxialconnect/app
 C="docker compose --env-file /srv/soxialconnect/compose.env -f deploy/docker/compose.yaml"
 $C config -q                         # configuration valide
 $C build                             # images : app, worker, web (plusieurs minutes : whisper.cpp est compilé)
+sh deploy/docker/scripts/check-image-contents.sh soxialconnect/app:$SOXIAL_VERSION soxialconnect/worker:$SOXIAL_VERSION soxialconnect/web:$SOXIAL_VERSION   # 0 échec attendu
+sh deploy/docker/scripts/check-image-digests.sh   # dérive des images de base
 $C up -d mysql redis clamav          # ClamAV : 5 à 10 min au premier démarrage (signatures)
 $C run --rm app php artisan security:check-production --strict   # DOIT réussir
 $C run --rm app php artisan migrate --force                      # étape explicite, après sauvegarde

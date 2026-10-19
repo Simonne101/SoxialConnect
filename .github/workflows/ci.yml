@@ -166,13 +166,8 @@ jobs:
           docker build -f deploy/docker/backend.Dockerfile --target app -t soxialconnect/app:ci .
           docker build -f deploy/docker/backend.Dockerfile --target worker -t soxialconnect/worker:ci .
           docker build -f deploy/docker/web.Dockerfile -t soxialconnect/web:ci .
-      - name: Contenu des images (extensions PHP, binaires vidéo, utilisateur non root)
-        run: |
-          set -eu
-          docker run --rm --entrypoint php soxialconnect/app:ci -r 'foreach (["pdo_mysql","intl","zip","gd","exif","bcmath","pcntl","mbstring","openssl","curl","fileinfo","Zend OPcache"] as $e) { if (!extension_loaded($e)) { fwrite(STDERR, "extension absente : ".$e.PHP_EOL); exit(1); } } if (!defined("PASSWORD_ARGON2ID")) { exit(1); } echo "app : extensions OK".PHP_EOL;'
-          docker run --rm --entrypoint id soxialconnect/app:ci | grep -q 'uid=33(www-data)'
-          docker run --rm --entrypoint sh soxialconnect/worker:ci -c 'ffmpeg -hide_banner -version | head -1 && ffprobe -hide_banner -version | head -1 && node --version && yt-dlp --version && /opt/whisper/bin/whisper-cli --help >/dev/null 2>&1 && test -s /opt/whisper/models/ggml-base.bin && test -d /opt/renderer/node_modules/@remotion/renderer && id | grep -q "uid=33(www-data)" && echo "worker : binaires OK"'
-          docker run --rm --entrypoint nginx soxialconnect/web:ci -V 2>&1 | head -1
+      - name: Contenu des images (chaque vérification affiche son résultat et l'erreur réelle)
+        run: sh deploy/docker/scripts/check-image-contents.sh soxialconnect/app:ci soxialconnect/worker:ci soxialconnect/web:ci
       - name: Configuration Nginx valide (certificat auto-signé jetable)
         run: |
           set -eu

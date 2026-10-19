@@ -24,6 +24,31 @@ final class FfmpegCommandBuilder
 
     public const FONT_FILE = 'font.ttf';
 
+    /** Version de FFmpeg ciblée ; inconnue = syntaxe actuelle (FFmpeg 7 et plus). */
+    private int $major = PHP_INT_MAX;
+
+    private int $minor = 0;
+
+    /**
+     * Commandes adaptées à la version réelle de FFmpeg (5.1 à 9) : « -/filter_complex fichier » n'existe que depuis
+     * FFmpeg 7.0 (avant : -filter_complex_script), l'option text_align de drawtext que depuis FFmpeg 6.1.
+     * Version illisible (compilation de développement « N-… ») : syntaxe actuelle.
+     */
+    public function forVersion(?string $versionLine): self
+    {
+        $builder = clone $this;
+        if ($versionLine !== null && preg_match('/version\s+n?(\d+)\.(\d+)/', $versionLine, $m) === 1) {
+            [$builder->major, $builder->minor] = [(int) $m[1], (int) $m[2]];
+        }
+
+        return $builder;
+    }
+
+    private function atLeast(int $major, int $minor): bool
+    {
+        return $this->major > $major || ($this->major === $major && $this->minor >= $minor);
+    }
+
     /**
      * @param  array<string, mixed>  $spec  spécification figée du rendu
      * @param  array<string, string>  $sources  media_id → chemin local lisible
@@ -68,7 +93,7 @@ final class FfmpegCommandBuilder
                         .':y='.$this->textY($props['position'] ?? 'bottom')
                         // Sous-titres du Clipper (propriété interne « box », jamais acceptée du Studio) :
                         // fond semi-transparent et lignes centrées pour la lisibilité.
-                        .(! empty($props['box']) ? ':box=1:boxcolor=black@0.55:boxborderw=16:line_spacing=6:text_align=C' : '')
+                        .(! empty($props['box']) ? ':box=1:boxcolor=black@0.55:boxborderw=16:line_spacing=6'.($this->atLeast(6, 1) ? ':text_align=C' : '') : '')
                         .":shadowcolor=black@0.6:shadowx=2:shadowy=2:{$enable}[{$next}]";
                     $video = $next;
 
@@ -120,7 +145,8 @@ final class FfmpegCommandBuilder
         foreach ($inputs as $input) {
             array_push($args, ...$input);
         }
-        array_push($args, '-/filter_complex', self::FILTER_FILE, '-map', '[vout]');
+        // Graphe lu dans un fichier (longueur de la ligne de commande bornée, textes jamais dans les arguments).
+        array_push($args, $this->atLeast(7, 0) ? '-/filter_complex' : '-filter_complex_script', self::FILTER_FILE, '-map', '[vout]');
         if ($audio !== []) {
             array_push($args, '-map', '[aout]', '-c:a', 'aac', '-b:a', (string) $encoding['audio_bitrate'], '-ar', (string) $encoding['audio_sample_rate']);
         } else {

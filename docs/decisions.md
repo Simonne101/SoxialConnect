@@ -733,3 +733,31 @@ Format : Decision / Context / Reason / Consequences / Status / Date.
   - **Procédures** : migration et retour arrière (§11), webhook Telegram de production (§12), inventaire et stockage des secrets (§13).
 - **Tests** : `Security/TokenRotationTest` (4) : rotation complète, clé oubliée détectée sans aucune modification, ligne en cours de rafraîchissement laissée intacte puis reprise idempotente, retour arrière.
 - **Status** : Accepted — 2026-10-19
+
+### ADR-077 — Compatibilité FFmpeg 5.1 à 9 et images Docker sur Debian trixie
+- **Context (2026-10-19)** : première CI (commit `b934e79`) en échec.
+  - **Backend** : 16 tests de rendu réel échouent (`FFMPEG_FAILED`). Le moteur passe `-/filter_complex fichier`, syntaxe apparue avec FFmpeg 7.0, alors que le runner Ubuntu 24.04 fournit FFmpeg 6.1.
+  - **Docker** : l'image `worker` (Debian bookworm) embarque FFmpeg 5.1.9, que confirme le journal de la CI. La production n'aurait donc pu rendre aucune vidéo ; `text_align` (sous-titres centrés) demande en plus FFmpeg 6.1.
+  - Le contrôle du contenu des images masquait par ailleurs la sortie de `whisper-cli`, ce qui empêchait d'identifier la vérification en échec.
+  - FFmpeg 9 (poste de développement) a **supprimé** `-filter_complex_script` : aucune syntaxe unique ne convient à toutes les versions.
+- **Decision** :
+  - **B — Code** :
+    - `FfmpegBinary::version()` lit la ligne de version déjà vérifiée et mémorisée par `ExecutableCheck` ;
+    - `FfmpegCommandBuilder::forVersion()` choisit `-/filter_complex` à partir de FFmpeg 7 et `-filter_complex_script` en dessous, et n'ajoute `text_align` qu'à partir de la 6.1 ;
+    - version illisible ou inconnue : syntaxe actuelle ;
+    - `FfmpegVideoRenderer` transmet la version au constructeur. Rien d'autre ne change dans la commande (test dédié).
+  - **A — Docker** :
+    - bases `php:8.3.35-{fpm,cli}-trixie`, `debian:trixie-slim` et `node:24.22.0-trixie-slim`, figées par empreinte : FFmpeg 7.1.5 ;
+    - dépendances de Chrome renommées dans trixie (`libatk1.0-0t64`, `libatk-bridge2.0-0t64`, `libcups2t64`, `libasound2t64`), noms vérifiés sur packages.debian.org ;
+    - `install-extensions.sh` conserve les bibliothèques d'exécution d'après les dépendances réelles des extensions (méthode des images officielles), sans nom propre à une version de Debian, et échoue si une extension ne se charge pas.
+  - **D — CI** : `scripts/check-image-contents.sh`, lançable aussi sur le serveur. Chaque vérification affiche « OK » ou « ÉCHEC » avec la sortie réelle de la commande, toutes sont exécutées, et le script rend le code 1 s'il y a au moins un échec. Vérifications :
+    - **app** : extensions, Argon2id, GD, `php-fpm -t`, uid 33 ;
+    - **worker** : FFmpeg 7 ou plus, encodeurs et filtres, mini-rendu réel avec la syntaxe du code, Node, yt-dlp, bibliothèques et démarrage de `whisper-cli`, modèle, renderer, Chrome headless (bibliothèques et `--version`), propriété du bundle, uid 33 ;
+    - **web** : Nginx, utilisateur non root.
+
+    Un essai à blanc local (faux `docker`) a révélé deux faux « OK » dans la première version du script : `ldd` en échec non détecté, code de retour de `head` au lieu de la commande. Ils sont corrigés.
+- **Tests** :
+  - `Video/FfmpegCommandBuilderTest` (+9) : syntaxe pour 8 lignes de version (5.1.9, 6.0, 6.1.1, 7.1.5, n7.1, 9.0.2, compilation N-…, inconnue) ; seule la syntaxe varie ;
+  - `Video/FfmpegVersionCompatibilityTest` (2, FFmpeg réel) : la version réelle produit une vidéo valide ; une version 6.1 annoncée bascule sur `-filter_complex_script`, que FFmpeg 9 rejette (message réel journalisé).
+  - La syntaxe ancienne est **exécutée** par la CI (Ubuntu, FFmpeg 6.1). La syntaxe actuelle l'est sur le poste (FFmpeg 9) et dans l'image `worker` (FFmpeg 7.1.5, mini-rendu du script).
+- **Status** : Accepted — 2026-10-19

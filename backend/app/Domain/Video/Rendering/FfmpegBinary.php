@@ -28,6 +28,24 @@ class FfmpegBinary
         return $this->check($this->ffmpegPath(), 'ffmpeg version');
     }
 
+    /**
+     * Ligne de version de FFmpeg (« ffmpeg version 7.1.5-0+deb13u1 … »), issue du même contrôle mémorisé que
+     * isAvailable() ; null si elle n'est pas connue (requête web, binaire non vérifié). Sert à adapter la syntaxe
+     * des commandes aux versions 5.1 à 9 (FfmpegCommandBuilder::forVersion).
+     */
+    public function version(): ?string
+    {
+        $result = app(ExecutableCheck::class)->check(
+            'ffmpeg',
+            $this->ffmpegPath(),
+            ['-hide_banner', '-version'],
+            fn (string $output) => str_starts_with($output, 'ffmpeg version') ? trim((string) strtok($output, "\n")) : null,
+            max(5, (int) config('video.binary_check_timeout_seconds', 20)),
+        );
+
+        return is_string($result['value'] ?? null) ? $result['value'] : null;
+    }
+
     /** FFprobe utilisable (analyse des sources et validation du MP4). */
     public function isProbeAvailable(): bool
     {
