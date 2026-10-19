@@ -53,7 +53,8 @@ le serveur est la seule autorité ; aucun secret dans le code, Git, les logs, le
 - Vérification email obligatoire (`verified`) avant toute action sensible (connexion OAuth, upload, publication).
   La consultation de ses propres comptes sociaux (`GET social/accounts`, liste éventuellement vide) n'en dépend pas :
   un nouvel utilisateur voit les réseaux disponibles et un bandeau l'invite à vérifier son adresse avant de connecter.
-- **2FA TOTP** : colonnes prêtes, activation par Fortify ; codes de secours chiffrés ; confirmation par mot de passe (`password.confirm`) pour les actions sensibles.
+- **2FA TOTP** (active, ADR-073) : Fortify, activation confirmée par un premier code, codes TOTP non rejouables, codes de secours chiffrés à usage unique ; toute gestion de la 2FA exige une confirmation du mot de passe de moins de 3 h (`password.confirm` → 423). Non encore protégés par `password.confirm` : déconnexion d'un réseau (suppression de compte et changement d'adresse : non implémentés).
+- **Connexion** : limites par adresse + IP (5/min, 20/h) et par IP toutes adresses confondues (20/min, 100/h, credential stuffing) ; hachage factice pour une adresse inconnue (temps de réponse identique). L'inscription répond 422 pour une adresse déjà utilisée (énumération résiduelle, freinée par `auth-sensitive`).
 - Écran Sécurité : sessions actives (driver de session `database`) et révocation.
 
 ## 4. Autorisation
@@ -107,7 +108,7 @@ Upload → Authentification → Autorisation (policy + quotas) → Taille (avant
 
 - **SVG, HTML, XML et exécutables interdits.** L'extension n'est jamais une preuve : les magic bytes font foi et doivent être cohérents avec l'extension.
 - Les images sont **réencodées** (suppression des métadonnées EXIF et GPS, neutralisation des polyglottes).
-- Fichier en quarantaine tant que `scan_status != clean`. Fichier infecté : suppression, audit `MEDIA_REJECTED`, notification.
+- Antivirus **ClamAV** (pilote `clamav`, démon clamd, ADR-073) : analyse AVANT tout stockage ; démon injoignable, réponse douteuse ou fichier trop gros = refus (échec fermé) ; fichier infecté : jamais stocké, audit `MEDIA_REJECTED`. Avec un moteur configuré, un média `pending` reste en quarantaine ; `media:scan-pending` analyse les médias importés sans moteur (aucune suppression : `infected` = jamais servi). Sur le poste de développement : aucun clamd (`MEDIA_SCAN_DRIVER=none`).
 - Limites en amont : `client_max_body_size` (Nginx), `post_max_size` et `upload_max_filesize` (PHP) ; en production, upload direct vers S3 par URL présignée **contrainte** (taille via `Content-Length`, type, durée ≤ 15 min, clé imposée).
 - Servir les fichiers : URLs signées courtes, `Content-Disposition: attachment` pour les documents, `X-Content-Type-Options: nosniff`, domaine de fichiers distinct du domaine applicatif (recommandé).
 
@@ -116,6 +117,7 @@ Voir architecture.md §4.7. Exigences : conteneur dédié non root, **sans rése
 seule sauf `/tmp/job-{uuid}`, limites CPU et mémoire (cgroups), `timeout` Process + `-t`, tableau d'arguments
 (pas de shell), `-protocol_whitelist file`, démuxeurs et codecs en liste blanche, `ffprobe` préalable, aucun paramètre
 brut provenant de l'utilisateur, nettoyage garanti, version de FFmpeg suivie (CVE) et image reconstruite régulièrement.
+**État (ADR-073/074)** : `-protocol_whitelist file` sur toutes les exécutions (test d'une playlist HLS piégée : aucune connexion) ; tableau d'arguments, délais ; en Docker, worker vidéo non root, système de fichiers en lecture seule, `/tmp` en tmpfs, 3 Go / 2 CPU — mais **avec** accès réseau (yt-dlp, IA) : l'isolement réseau de FFmpeg seul reste à faire.
 
 ## 9. SSRF (imports par URL)
 L'import vidéo par URL est limité aux **URLs directes vers un fichier** dont l'utilisateur détient les droits (ADR-013).
@@ -155,8 +157,10 @@ Ordre de traitement de toute route : **Authentification → Autorisation → Val
   `connect-src 'self' <api>`, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`) ;
   `X-Content-Type-Options: nosniff` ; `Referrer-Policy: strict-origin-when-cross-origin` ; `Permissions-Policy` minimale.
 - HTTPS partout (redirection 301 au proxy), cookies `Secure`.
+- Avant chaque mise en ligne : `php artisan config:cache && php artisan security:check-production` (ADR-072) — doit réussir ; modèle `backend/.env.production.example`. Proxys de confiance : `TRUSTED_PROXIES` (lu via `config/security.php`, compatible `config:cache`).
 - Validation stricte par `FormRequest` : types, bornes, énumérations, tailles de tableaux ; les clés inconnues sont ignorées (`validated()` uniquement).
-- Payload JSON limité (1 Mo sauf exceptions), pagination bornée.
+- Payload JSON limité à 1 Mo (`LimitJsonPayload`, 413, `API_MAX_JSON_KB`), pagination bornée ; Nginx (Docker) : 2 Mo par défaut, 1,1 Go pour les imports de médias.
+- CSP, HSTS et en-têtes du SPA : `deploy/docker/nginx/security-headers.conf` (préparés, non déployés).
 - Gestion centralisée des erreurs (`bootstrap/app.php` → `withExceptions`) : pas de stack trace en production (`APP_DEBUG=false`), `request_id` renvoyé.
 - XSS : React échappe par défaut ; `dangerouslySetInnerHTML` interdit (règle ESLint) ; les contenus des plateformes et de l'IA sont traités comme du texte brut ; liens externes en `rel="noopener noreferrer"`.
 - **Injection de prompt** : les sorties IA ne déclenchent jamais d'action automatique (publication, suppression) ; elles sont validées par schéma et relues par l'utilisateur.
@@ -179,6 +183,13 @@ Défini dans `AppServiceProvider` via `RateLimiter::for()`, stocké dans Redis. 
 
 Les quotas des plateformes (limites de publication et d'API par 24 h) sont gérés **en plus**, par adaptateur, avec des compteurs Redis.
 
+**Quotas de ressources (ADR-071, `config/quotas.php`)** : stockage par utilisateur (10 Go par défaut, médias supprimés
+comptés jusqu'à leur purge, réservations sous verrou) ; clipping (5 projets actifs, 20 créations sur 24 h glissantes) ;
+garde d'espace disque global (2 Go minimum restants après chaque opération, marge de 20 %). Refus : **413**
+`STORAGE_QUOTA_EXCEEDED`, **429** `CLIPPING_ACTIVE_LIMIT` / `CLIPPING_DAILY_LIMIT` (Retry-After), **507**
+`DISK_SPACE_LOW` (Retry-After). Les traitements (acquisition, analyse, rendus) vérifient les mêmes limites au démarrage
+et échouent proprement, sans rien lancer.
+
 ## 13. Logs et audit
 - **Logs applicatifs** (Monolog JSON, canal `stderr` en conteneur) : erreurs, warnings, performance, exceptions, avec
   `request_id`, `user_id` et `job_uuid`.
@@ -186,7 +197,15 @@ Les quotas des plateformes (limites de publication et d'API par 24 h) sont gér�
   `access_token`, `refresh_token`, `token`, `secret`, `client_secret`, `api_key`, `authorization`, `cookie`, `session`,
   `signed_request`, `code` (OAuth), ainsi que les motifs de type Bearer ou JWT. Le même redacteur s'applique aux
   `audit_logs.metadata`, `publication_attempts.response_excerpt`, `webhook_events.payload` et au client HTTP sortant.
-- `failed_jobs` : les payloads ne contiennent que des identifiants (voir architecture.md §4.4).
+- `failed_jobs` : les payloads ne contiennent que des identifiants (voir architecture.md §4.4) ; le texte de l'exception est
+  expurgé avant écriture (`RedactingFailedJobProvider`).
+- Exceptions jointes à un journal : converties en tableau expurgé (classe, message, emplacement, pile, jusqu'à
+  3 exceptions précédentes), jamais écrites telles quelles. Motifs couverts en plus des clés : jeton de bot Telegram
+  dans une URL (`/bot<id>:<jeton>/`), jetons Google (`ya29.`, `1//`), `"clé":"valeur"` dans un JSON sérialisé,
+  en-têtes secrets, paramètres `signature`/`sig`. Tous les canaux qui écrivent portent le processeur ; les tests
+  écrivent dans `storage/logs/testing-*.log` (rotation 3 jours), l'application dans des fichiers quotidiens (ADR-070). Le journal de
+  secours de Laravel (`emergency`, utilisé si un canal ne peut être créé) est expurgé lui aussi et écrit dans `emergency.log` (ADR-073).
+  Les anciens fichiers de journaux ne sont pas réécrits : voir [secrets-remediation.md](secrets-remediation.md).
 - **Audit logs** : table append-only (database.md §3.8), écrite par `AuditLogger` depuis des listeners d'événements. Rétention 1 an (proposition).
 - Outil d'erreurs (Sentry ou équivalent, recommandé) avec `send_default_pii=false` et le même filtrage.
 
@@ -217,6 +236,7 @@ Détection → Confinement → Investigation → Éradication → Rétablissemen
 ## 16. Chaîne d'approvisionnement et CI
 Versions verrouillées (`composer.lock`, `package-lock.json`), `composer audit` et `npm audit` en CI, Dependabot ou
 Renovate, scan de secrets (gitleaks) en pre-commit et en CI, installation minimale de paquets, revue de chaque nouvelle dépendance.
+**État (ADR-075)** : `.github/workflows/ci.yml` (PHPUnit avec MySQL, Redis, ClamAV réels ; `tsc`, lint, build, `npm test` ; `composer audit` ; `npm audit --omit=dev` ; gitleaks sur tout l'historique) — Dependabot/Renovate et le crochet pre-commit restent à mettre en place.
 
 ## 17. RGPD (à compléter avec un conseil juridique)
 Registre des traitements, politique de confidentialité et CGU (exigées aussi par les revues d'applications des

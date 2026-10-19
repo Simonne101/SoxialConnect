@@ -36,7 +36,9 @@ class AiVideoConfigTest extends TestCase
 
     public function test_ai_config_loads_without_any_provider_or_secret(): void
     {
-        $config = $this->load('ai.php', ['AI_DEFAULT_PROVIDER' => '', 'OPENAI_API_KEY' => '', 'ANTHROPIC_API_KEY' => '', 'GEMINI_API_KEY' => '', 'AI_DEFAULT_MODEL' => '']);
+        // Toutes les variables de modèle neutralisées : indépendant du .env local.
+        $models = collect(['IDEAS', 'POST', 'CAPTION', 'HASHTAGS', 'REPHRASE', 'TONE', 'ADAPT', 'SCRIPT', 'VIDEO_ANALYSIS', 'TRANSCRIPTION', 'IMAGE'])->mapWithKeys(fn ($t) => ["AI_MODEL_{$t}" => ''])->all();
+        $config = $this->load('ai.php', ['AI_DEFAULT_PROVIDER' => '', 'OPENAI_API_KEY' => '', 'ANTHROPIC_API_KEY' => '', 'GEMINI_API_KEY' => '', 'AI_DEFAULT_MODEL' => '', 'AI_TRANSCRIPTION_PROVIDER' => '', 'AI_IMAGE_PROVIDER' => '', ...$models]);
 
         $this->assertNull($config['default_provider']);
         foreach (['openai', 'anthropic', 'gemini'] as $provider) {
@@ -46,8 +48,11 @@ class AiVideoConfigTest extends TestCase
         foreach ($config['tasks'] as $task => $settings) {
             $this->assertNotNull(AiTask::tryFrom($task), "Tâche inconnue : {$task}");
             $this->assertNull($settings['model'], 'Aucun modèle imposé sans .env.');
-            $this->assertGreaterThan(0, $settings['max_output_tokens']);
+            if (! in_array($task, ['transcription', 'image'], true)) {
+                $this->assertGreaterThan(0, $settings['max_output_tokens'], "Tâche de texte {$task} : longueur bornée.");
+            }
         }
+        $this->assertSame(['1024x1024', '1024x1536', '1536x1024'], array_values($config['images']['sizes']));
         $this->assertArrayHasKey('adapt', $config['tasks']);
         $this->assertSame(60, $config['timeout']);
         $this->assertSame('ai', $config['queue']['name']);

@@ -17,5 +17,12 @@ final readonly class AiTextRequest
         public int $maxOutputTokens = 256,
         /** null : valeur par défaut du modèle (certains modèles n'acceptent pas ce réglage). */
         public ?float $temperature = null,
+        /**
+         * Vidéo publique à analyser, par son URL (ADR-048) : uniquement pour un fournisseur ayant la
+         * capacité AiCapability::VideoUrl (Gemini) ; les autres refusent la demande (UNSUPPORTED_INPUT).
+         */
+        public ?string $videoUrl = null,
+        /** Schéma JSON de la réponse attendue, appliqué par les fournisseurs qui le prennent en charge. */
+        public ?array $jsonSchema = null,
     ) {}
 }

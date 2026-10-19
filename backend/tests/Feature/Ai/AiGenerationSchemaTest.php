@@ -48,14 +48,14 @@ class AiGenerationSchemaTest extends TestCase
         $this->assertNull(AiGeneration::findOrFail($this->insert(['task' => 'post']))->cost_estimate_micros, 'Coût inconnu : NULL, jamais 0.');
     }
 
-    public function test_every_existing_task_and_adapt_are_accepted_and_unknown_tasks_refused(): void
+    public function test_every_existing_task_adapt_and_image_are_accepted_and_unknown_tasks_refused(): void
     {
         $previous = ['post', 'caption', 'ideas', 'hashtags', 'rephrase', 'script', 'tone', 'video_analysis', 'clip_detection', 'transcription'];
-        foreach ([...$previous, 'adapt'] as $task) {
+        foreach ([...$previous, 'adapt', 'image'] as $task) {
             $this->insert(['task' => $task]);
         }
-        $this->assertSame(11, DB::table('ai_generations')->count());
-        $this->assertEqualsCanonicalizing([...$previous, 'adapt'], AiTask::values(), 'Enum PHP et contrainte SQL alignés.');
+        $this->assertSame(12, DB::table('ai_generations')->count());
+        $this->assertEqualsCanonicalizing([...$previous, 'adapt', 'image'], AiTask::values(), 'Enum PHP et contrainte SQL alignés.');
 
         $this->expectException(QueryException::class);
         $this->insert(['task' => 'translate']);

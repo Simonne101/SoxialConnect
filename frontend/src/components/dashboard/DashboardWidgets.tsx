@@ -180,7 +180,7 @@ export function RecentActivity({ items, isLoading }: { items: ActivityItem[] | u
 const SHORTCUTS: { to: string; label: string; description: string; icon: LucideIcon; tone: string }[] = [
   { to: "/content/create", label: "Créer une publication", description: "Écrire et publier sur vos réseaux", icon: SquarePen, tone: "bg-brand-500 text-white" },
   { to: "/media", label: "Importer un média", description: "Ajouter photos et vidéos", icon: ImagePlus, tone: "bg-warning-50 text-warning-700" },
-  { to: "/video-studio", label: "Découper une vidéo", description: "Créer des clips courts", icon: Clapperboard, tone: "bg-violet-50 text-violet-600" },
+  { to: "/studio/clipper", label: "Découper une vidéo", description: "Clips courts de 60 s maximum", icon: Clapperboard, tone: "bg-violet-50 text-violet-600" },
   { to: "/ai", label: "Demander à l'IA", description: "Idées, légendes, hashtags", icon: Sparkles, tone: "bg-success-50 text-success-700" },
 ]
 

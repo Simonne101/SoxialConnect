@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { AlertTriangle, BadgeCheck, KeyRound, LoaderCircle, LogOut, Monitor, ShieldCheck, Smartphone } from "lucide-react"
+import { AlertTriangle, BadgeCheck, LoaderCircle, LogOut, Monitor, ShieldCheck, Smartphone } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 import { useForm } from "react-hook-form"
 import { Link } from "react-router"
@@ -35,6 +35,7 @@ import { PLATFORMS } from "@/lib/platforms"
 import { ACCOUNT_STATUS } from "@/lib/status"
 import { TIMEZONES } from "@/lib/time"
 import type { NotificationPreferences } from "@/types"
+import { TwoFactorPanel } from "./TwoFactorPanel"
 
 export function Panel({ title, description, children, footer }: { title: string; description?: string; children: ReactNode; footer?: ReactNode }) {
   return (
@@ -205,15 +206,7 @@ export function SecurityPanel() {
         </Panel>
       </form>
 
-      <Panel title="Double authentification (2FA)" description="Ajoutez un code temporaire à votre mot de passe lors de la connexion.">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="flex items-center gap-3 text-sm text-ink-soft">
-            <span className="inline-flex size-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600" aria-hidden="true"><KeyRound className="size-5" /></span>
-            Application d'authentification (Google Authenticator, Authy…)
-          </p>
-          <Button variant="outline" disabled>Bientôt disponible</Button>
-        </div>
-      </Panel>
+      <TwoFactorPanel />
 
       <Panel title="Sessions actives" description="Les appareils actuellement connectés à votre compte.">
         {sessions.isLoading ? (

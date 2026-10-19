@@ -8,6 +8,8 @@ enum TokenKind: string
     case User = 'user';
     case Page = 'page';
     case App = 'app';
+    /** Autorisation Google Data Portability (export officiel des vidéos de la chaîne, ADR-054). */
+    case Portability = 'portability';
 
     /** @return list<string> */
     public static function values(): array

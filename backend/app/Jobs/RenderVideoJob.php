@@ -2,6 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Domain\Quota\DiskSpaceInsufficient;
+use App\Domain\Quota\QuotaExceeded;
+use App\Domain\Quota\ResourceGuard;
 use App\Domain\Video\Rendering\FfmpegVideoRenderer;
 use App\Domain\Video\Rendering\RenderFailure;
 use App\Domain\Video\Rendering\RenderWorkspace;
@@ -40,11 +43,24 @@ class RenderVideoJob implements ShouldQueue
         $this->onQueue(config('video.render.queue'));
     }
 
-    public function handle(VideoRenderService $renders, FfmpegVideoRenderer $renderer): void
+    public function handle(VideoRenderService $renders, FfmpegVideoRenderer $renderer, ResourceGuard $resources): void
     {
         $render = $renders->start($this->renderId);
         if ($render === null) {
             return; // supprimé, annulé ou déjà traité
+        }
+
+        // Quotas (ADR-071) : stockage de l'utilisateur et disque réservés AVANT FFmpeg ; sinon échec propre.
+        try {
+            $release = $resources->forRender((string) $render->user_id, 'video_render');
+        } catch (QuotaExceeded $e) {
+            $renders->fail($render, $e->errorCode, $e->getMessage());
+
+            return;
+        } catch (DiskSpaceInsufficient $e) {
+            $renders->fail($render, DiskSpaceInsufficient::CODE, $e->getMessage());
+
+            return;
         }
 
         $workspace = RenderWorkspace::create($render->getKey());
@@ -65,6 +81,7 @@ class RenderVideoJob implements ShouldQueue
             $renders->fail($render, 'RENDER_FAILED', 'Le rendu a échoué de façon inattendue.');
         } finally {
             $workspace->delete();
+            $release();
         }
     }
 

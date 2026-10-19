@@ -3,6 +3,7 @@
 namespace App\Domain\Video\Rendering;
 
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 /**
@@ -34,8 +35,25 @@ final class RenderWorkspace
         return $this->root.DIRECTORY_SEPARATOR.$dir.($file !== '' ? DIRECTORY_SEPARATOR.$file : '');
     }
 
+    /**
+     * Sous Windows, un fichier peut rester verrouillé quelques instants après la fin de FFmpeg ou de
+     * Remotion (handle pas encore libéré, antivirus ; le profil Chrome de Remotion peut rester verrouillé
+     * plus d'une seconde après un échec, observé le 2026-10-11) : la suppression est retentée pendant ~4 s.
+     */
     public function delete(): void
     {
-        File::deleteDirectory($this->root);
+        for ($attempt = 0; $attempt < 20; $attempt++) {
+            File::deleteDirectory($this->root);
+            if (! File::isDirectory($this->root)) {
+                return;
+            }
+            usleep(200_000);
+        }
+        // Diagnostic (aucun effet sur le rendu) : ce qui empêche la suppression, pour en trouver la cause.
+        Log::warning('video.workspace_not_deleted', [
+            'workspace' => basename($this->root),
+            'remaining' => array_map(fn ($file) => str_replace($this->root, '', (string) $file), array_slice(File::allFiles($this->root, true), 0, 20)),
+            'directories' => array_map(fn ($dir) => str_replace($this->root, '', $dir), File::directories($this->root)),
+        ]);
     }
 }

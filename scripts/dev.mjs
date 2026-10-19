@@ -4,9 +4,9 @@
 //   npm run dev:stop      arrête l'instance SoxialConnect en cours (et ses processus orphelins)
 //   npm run dev:restart   arrête puis redémarre (ex. après un changement de .env)
 //   option --no-browser   n'ouvre pas le navigateur (ou SOXIAL_NO_BROWSER=1)
-//   option --workers=ai,video   démarre aussi le worker IA et/ou le worker de rendu vidéo
-//                         (désactivés par défaut ; à repasser avec dev:restart, ex.
-//                         `npm run dev:restart -- --workers=ai`)
+//   option --workers=ai,video   workers IA et vidéo démarrés (PAR DÉFAUT : les deux, indispensables au
+//                         Clipper, aux images IA et aux rendus) ; `--workers=none` pour ne lancer
+//                         aucun des deux, `--workers=ai` pour un seul (avec dev:restart si déjà lancé)
 //
 // 1. vérifie MySQL et Redis (Laragon) ; 2. détecte une instance déjà lancée et les processus
 // orphelins d'une instance précédente ; 3. démarre l'API Laravel (localhost:8000), le worker,
@@ -41,7 +41,8 @@ const openBrowser = !argv.has('--no-browser') && process.env.SOXIAL_NO_BROWSER !
 // Workers optionnels (ADR-042) : file « ai » (connexion redis) et file « video » (connexion redis-video).
 const OPTIONAL_WORKERS = ['ai', 'video']
 const workersArg = process.argv.slice(2).find((a) => a.startsWith('--workers='))
-const extraWorkers = new Set((workersArg ? workersArg.slice('--workers='.length) : '').split(',').map((w) => w.trim()).filter(Boolean))
+// Par défaut : les deux workers (sans eux, analyses, récupérations de source, rendus et images IA restent « en attente »).
+const extraWorkers = new Set((workersArg ? workersArg.slice('--workers='.length) : OPTIONAL_WORKERS.join(',')).split(',').map((w) => w.trim()).filter((w) => w && w !== 'none'))
 
 const color = { api: '\x1b[35m', web: '\x1b[36m', worker: '\x1b[34m', 'worker-ai': '\x1b[34m', 'worker-video': '\x1b[34m', cron: '\x1b[90m', info: '\x1b[32m', warn: '\x1b[33m', err: '\x1b[31m', reset: '\x1b[0m' }
 const say = (tag, text, c = color.info) => console.log(`${c}[${tag}]${color.reset} ${text}`)
@@ -288,7 +289,13 @@ const state = { root, launcher: { pid: process.pid, created: self?.created ?? ''
 writeState(state)
 
 const children = []
-function run(tag, command, args, cwd, extraEnv = {}) {
+// Workers : un arrêt inattendu (ex. sortie de veille du poste : le délai de `queue:work --once`,
+// mesuré en temps écoulé, est dépassé sans qu'aucun job ne tourne) les relance au lieu d'arrêter
+// tout SoxialConnect. Au plus RESTART_LIMIT relances par fenêtre : une vraie panne reste visible.
+const RESTART_LIMIT = 5
+const RESTART_WINDOW_MS = 10 * 60_000
+const restarts = new Map()
+function run(tag, command, args, cwd, extraEnv = {}, { restart = false } = {}) {
   // Windows : `php` et `npm` sont des scripts .cmd, lancés via cmd.exe (sans l'option shell dépréciée).
   const [bin, cmdArgs] = isWindows ? ['cmd.exe', ['/d', '/s', '/c', [command, ...args].join(' ')]] : [command, args]
   // Pas de windowsHide : sous Windows, les enfants doivent partager la console (artisan serve plante
@@ -303,10 +310,19 @@ function run(tag, command, args, cwd, extraEnv = {}) {
   child.stdout.on('data', print)
   child.stderr.on('data', print)
   child.on('exit', (code) => {
-    if (!stopping) {
-      say(tag, `s'est arrêté (code ${code}). Arrêt de SoxialConnect.`, color.err)
-      stop(1)
+    if (stopping) return
+    if (restart) {
+      const recent = (restarts.get(tag) ?? []).filter((t) => Date.now() - t < RESTART_WINDOW_MS)
+      if (recent.length < RESTART_LIMIT) {
+        restarts.set(tag, [...recent, Date.now()])
+        say(tag, `s'est arrêté (code ${code}) : redémarrage dans 3 s (${recent.length + 1}/${RESTART_LIMIT}).`, color.err)
+        setTimeout(() => { if (!stopping) { run(tag, command, args, cwd, extraEnv, { restart }); recordProcesses() } }, 3000)
+        return
+      }
+      say(tag, `s'est arrêté ${RESTART_LIMIT} fois en ${RESTART_WINDOW_MS / 60_000} min.`, color.err)
     }
+    say(tag, `s'est arrêté (code ${code}). Arrêt de SoxialConnect.`, color.err)
+    stop(1)
   })
   children.push(child)
   return child
@@ -347,27 +363,29 @@ const phpEnv = { PHP_INI_SCAN_DIR: path.join(backend, 'dev') }
 run('api', 'php', ['artisan', 'serve', '--host=localhost', '--port=8000'], backend, phpEnv)
 
 // Worker de DÉVELOPPEMENT : files « publishing » (moteur de publication), « default » (Telegram,
-// notifications) et « media ». `queue:listen` exécute chaque job dans un processus PHP neuf : le
+// notifications), « media » et « analytics » (collecte des statistiques, priorité la plus basse). `queue:listen` exécute chaque job dans un processus PHP neuf : le
 // code modifié est pris en compte sans redémarrage, et --timeout est réellement appliqué (même sous
 // Windows). --timeout inférieur à retry_after (360 s) ; chaque job fixe lui-même ses tentatives.
 say('info', 'Démarrage du worker de file d\'attente (rechargement du code à chaque job)…')
-run('worker', 'php', ['artisan', 'queue:listen', 'redis', '--queue=publishing,default,media', '--sleep=1', '--timeout=300', '--memory=256'], backend, phpEnv)
+run('worker', 'php', ['artisan', 'queue:listen', 'redis', '--queue=publishing,default,media,analytics', '--sleep=1', '--timeout=300', '--memory=256'], backend, phpEnv, { restart: true })
 
-// Workers optionnels (--workers=ai,video). « video » exécute les rendus du Video Studio
+// Workers IA et vidéo (par défaut ; --workers=none pour s'en passer). « video » exécute les rendus du Video Studio
 // (RenderVideoJob) : sans lui, un rendu demandé reste « en file ». Sans FFmpeg, le worker démarre
 // quand même et chaque rendu échoue proprement (RENDERER_UNAVAILABLE).
 for (const w of extraWorkers) {
   if (!OPTIONAL_WORKERS.includes(w)) say('warn', `Worker inconnu ignoré : « ${w} » (valeurs possibles : ${OPTIONAL_WORKERS.join(', ')}).`, color.warn)
 }
 if (extraWorkers.has('ai')) {
-  // Appels IA bornés par config ai.timeout (60 s) : --timeout bien inférieur au retry_after de « redis » (360 s).
+  // File « ai » = génération d'images (GenerateAiImageJob, $timeout 300 s : appel fournisseur ai.images.timeout
+  // 180 s + import). `queue:listen` tue le job au bout de --timeout, quel que soit son $timeout : il doit donc
+  // être ≥ 300 s, et inférieur au retry_after de « redis » (360 s) pour qu'un job en cours ne soit pas relancé.
   say('info', 'Démarrage du worker IA (file « ai »)…')
-  run('worker-ai', 'php', ['artisan', 'queue:listen', 'redis', '--queue=ai', '--sleep=1', '--timeout=120', '--memory=256'], backend, phpEnv)
+  run('worker-ai', 'php', ['artisan', 'queue:listen', 'redis', '--queue=ai', '--sleep=1', '--timeout=300', '--memory=256'], backend, phpEnv, { restart: true })
 }
 if (extraWorkers.has('video')) {
   // Connexion « redis-video » : retry_after (1 900 s) supérieur au plus long rendu (--timeout, video.render.timeout_seconds).
   say('info', 'Démarrage du worker vidéo (file « video », connexion redis-video)…')
-  run('worker-video', 'php', ['artisan', 'queue:listen', 'redis-video', '--queue=video', '--sleep=3', '--timeout=1800', '--memory=512'], backend, phpEnv)
+  run('worker-video', 'php', ['artisan', 'queue:listen', 'redis-video', '--queue=video', '--sleep=3', '--timeout=1800', '--memory=512'], backend, phpEnv, { restart: true })
 }
 
 // Planificateur Laravel (chaque minute, dans un processus neuf) : publications programmées arrivées

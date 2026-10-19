@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\OAuth\DataPortabilityCallbackController;
 use App\Http\Controllers\OAuth\LinkedInCallbackController;
 use App\Http\Controllers\OAuth\TikTokCallbackController;
 use App\Http\Controllers\OAuth\XCallbackController;
@@ -40,3 +41,9 @@ Route::get('/oauth/linkedin/callback', LinkedInCallbackController::class)
 Route::get('/oauth/x/callback', XCallbackController::class)
     ->middleware('throttle:20,1')
     ->name('oauth.x.callback');
+
+// Retour OAuth de Google pour l'export officiel Data Portability (ADR-054) : même principe. Redirect URI
+// déclarée chez Google (DATA_PORTABILITY_REDIRECT_URI) ; en local, relayée par Vite (/oauth).
+Route::get('/oauth/data-portability/callback', DataPortabilityCallbackController::class)
+    ->middleware('throttle:20,1')
+    ->name('oauth.data-portability.callback');

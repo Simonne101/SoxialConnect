@@ -6,9 +6,9 @@ import {
   TELEGRAM_CAPTION_LIMIT,
   TELEGRAM_MAX_FILE_BYTES,
   TELEGRAM_MAX_PHOTO_BYTES,
-} from "@/lib/platforms"
-import { browserTimezone } from "@/lib/time"
-import { xWeightedLength } from "@/lib/xText"
+} from "../../../lib/platforms.ts"
+import { browserTimezone } from "../../../lib/time.ts"
+import { xWeightedLength } from "../../../lib/xText.ts"
 import type {
   MediaAsset,
   PlatformKey,
@@ -24,8 +24,11 @@ export interface VariantDraft {
   body: string
   format: PostFormat
   options: VariantOptions
-  /** Compte ciblé quand le réseau en compte plusieurs (ex. chaînes et groupes Telegram). */
-  accountId?: string
+  /**
+   * Comptes de destination de ce réseau (identifiants internes) : une publication indépendante est créée
+   * pour CHACUN (texte, format et options de la variante partagés). Vide = aucun compte choisi.
+   */
+  accountIds: string[]
 }
 
 /**
@@ -43,6 +46,23 @@ export function platformAccount(accounts: SocialAccount[], platform: PlatformKey
 /** Comptes publiables d'un réseau (connectés), dans l'ordre de connexion. */
 export function connectedAccounts(accounts: SocialAccount[], platform: PlatformKey): SocialAccount[] {
   return accounts.filter((a) => a.platform === platform && a.status === "connected")
+}
+
+/**
+ * Destinations choisies pour un réseau : comptes retrouvés (dans l'ordre du choix) et identifiants
+ * introuvables (compte supprimé ou d'un autre réseau) — jamais remplacés par un autre compte.
+ */
+export function selectedAccounts(accounts: SocialAccount[], platform: PlatformKey, accountIds: string[]): { found: SocialAccount[]; missing: string[] } {
+  const own = new Map(accounts.filter((a) => a.platform === platform).map((a) => [a.id, a]))
+  const ids = [...new Set(accountIds)]
+  return { found: ids.flatMap((id) => (own.has(id) ? [own.get(id)!] : [])), missing: ids.filter((id) => !own.has(id)) }
+}
+
+/** Comptes proposés pour un réseau : connectés, plus ceux déjà choisis qui ne le sont plus (affichés avec leur état). */
+export function accountChoices(accounts: SocialAccount[], platform: PlatformKey, accountIds: string[]): SocialAccount[] {
+  const connected = connectedAccounts(accounts, platform)
+  const stale = selectedAccounts(accounts, platform, accountIds).found.filter((a) => a.status !== "connected")
+  return [...stale, ...connected]
 }
 
 /** Nom affiché d'un compte dans le Composer (titre, sinon identifiant public). */
@@ -67,6 +87,7 @@ export function defaultVariant(platform: PlatformKey): VariantDraft {
   return {
     customize: false,
     body: "",
+    accountIds: [],
     format: cfg.formats[0].value,
     options:
       platform === "tiktok"
@@ -121,17 +142,22 @@ export function validateComposer(
     const cfg = PLATFORMS[p]
     const v = values.variants[p] ?? defaultVariant(p)
     const text = variantText(values, p)
-    const account = platformAccount(accounts, p, v.accountId)
-    if (!account) {
+    // Chaque compte choisi est une destination : chacune doit exister et être connectée (aucune n'est ignorée).
+    const { found, missing } = selectedAccounts(accounts, p, v.accountIds)
+    if (found.length === 0 && missing.length === 0) {
       issues.push({
         platform: p,
         level: "error",
-        message: v.accountId
-          ? `${cfg.name} : le compte choisi n'existe plus. Choisissez un autre compte.`
+        message: connectedAccounts(accounts, p).length
+          ? `${cfg.name} : cochez au moins un compte de destination.`
           : `${cfg.name} : aucun compte connecté. Connectez un compte dans Réseaux sociaux.`,
       })
-    } else if (account.status !== "connected") {
-      issues.push({ platform: p, level: "error", message: `${cfg.name} n'est pas prêt : ${(account.statusMessage ?? "reconnectez le compte").replace(/.$/, "")}.` })
+    }
+    if (missing.length) {
+      issues.push({ platform: p, level: "error", message: `${cfg.name} : ${missing.length > 1 ? `${missing.length} comptes choisis n'existent plus` : "un compte choisi n'existe plus"}. Décochez-le ou choisissez un autre compte.` })
+    }
+    for (const account of found.filter((a) => a.status !== "connected")) {
+      issues.push({ platform: p, level: "error", message: `${cfg.name} · ${accountLabel(account)} n'est pas prêt : ${(account.statusMessage ?? "reconnectez le compte").replace(/.$/, "")}. Reconnectez-le ou décochez-le.` })
     }
     if (p === "x" && media.length > 0) {
       // V1 : texte seul (le serveur refuse aussi les médias pour X, sans rien envoyer).
@@ -211,15 +237,16 @@ export function toDraftInput(values: ComposerValues, accounts: SocialAccount[], 
     mediaIds: values.mediaIds,
     scheduledAt,
     timezone: browserTimezone(),
-    targets: values.platforms.map((p) => {
+    // Une destination (variante côté serveur) par compte choisi : chacune est publiée et suivie séparément.
+    targets: values.platforms.flatMap((p) => {
       const v = values.variants[p] ?? defaultVariant(p)
-      return {
+      return selectedAccounts(accounts, p, v.accountIds).found.map((account) => ({
         platform: p,
-        socialAccountId: platformAccount(accounts, p, v.accountId)?.id ?? "",
+        socialAccountId: account.id,
         format: v.format,
         body: v.customize ? v.body : null,
         options: v.options,
-      }
+      }))
     }),
   }
 }
@@ -227,7 +254,13 @@ export function toDraftInput(values: ComposerValues, accounts: SocialAccount[], 
 export function fromPost(post: Post): ComposerValues {
   const variants: ComposerValues["variants"] = {}
   for (const v of post.variants) {
-    variants[v.platform] = { customize: v.body !== null, body: v.body ?? "", format: v.format, options: v.options, accountId: v.socialAccountId }
+    const current = variants[v.platform]
+    if (current) {
+      // Plusieurs comptes du même réseau : une seule variante éditable, tous les comptes conservés.
+      if (v.socialAccountId) current.accountIds.push(v.socialAccountId)
+      continue
+    }
+    variants[v.platform] = { customize: v.body !== null, body: v.body ?? "", format: v.format, options: v.options, accountIds: v.socialAccountId ? [v.socialAccountId] : [] }
   }
   return {
     title: post.title ?? "",
@@ -236,4 +269,20 @@ export function fromPost(post: Post): ComposerValues {
     platforms: [...new Set(post.variants.map((v) => v.platform))],
     variants,
   }
+}
+
+/**
+ * Réseaux dont les destinations d'une publication existante n'ont pas le même contenu (texte, format ou
+ * options), ce que le Composer ne sait pas éditer séparément : l'utilisateur est prévenu avant
+ * d'enregistrer (le contenu de la première destination serait appliqué à toutes).
+ */
+export function divergentPlatforms(post: Post): PlatformKey[] {
+  const first = new Map<PlatformKey, string>()
+  const divergent = new Set<PlatformKey>()
+  for (const v of post.variants) {
+    const signature = JSON.stringify([v.body, v.format, v.options])
+    if (!first.has(v.platform)) first.set(v.platform, signature)
+    else if (first.get(v.platform) !== signature) divergent.add(v.platform)
+  }
+  return [...divergent]
 }

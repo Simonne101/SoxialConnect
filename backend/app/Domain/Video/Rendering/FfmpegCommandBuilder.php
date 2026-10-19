@@ -66,6 +66,9 @@ final class FfmpegCommandBuilder
                         .':fontcolor=0x'.ltrim((string) ($props['color'] ?? '#FFFFFF'), '#')
                         .':x='.$this->textX($props['align'] ?? 'center')
                         .':y='.$this->textY($props['position'] ?? 'bottom')
+                        // Sous-titres du Clipper (propriété interne « box », jamais acceptée du Studio) :
+                        // fond semi-transparent et lignes centrées pour la lisibilité.
+                        .(! empty($props['box']) ? ':box=1:boxcolor=black@0.55:boxborderw=16:line_spacing=6:text_align=C' : '')
                         .":shadowcolor=black@0.6:shadowx=2:shadowy=2:{$enable}[{$next}]";
                     $video = $next;
 

@@ -1,0 +1,226 @@
+# =====================================================================================================================
+# SoxialConnect — composition Docker de PRODUCTION (préparée, NON déployée ; ADR-074, docs/deployment-docker.md).
+#
+#   docker compose --env-file compose.env -f deploy/docker/compose.yaml config   # vérification
+#   docker compose --env-file compose.env -f deploy/docker/compose.yaml up -d    # sur le VPS uniquement
+#
+# - Seul « web » publie des ports (80/443). MySQL, Redis, ClamAV et PHP-FPM restent sur des réseaux internes.
+# - Secrets : compose.env (mots de passe des services) et le .env Laravel de production, deux fichiers du serveur
+#   (chmod 600, hors Git), montés à l'exécution ; jamais copiés dans une image.
+# - Les migrations ne sont jamais automatiques : étape explicite et sauvegarde préalable.
+# =====================================================================================================================
+name: soxialconnect
+
+x-backend: &backend
+  image: ${SOXIAL_IMAGE_PREFIX:-soxialconnect}/worker:${SOXIAL_VERSION:?SOXIAL_VERSION requis}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/backend.Dockerfile
+    target: worker
+  restart: unless-stopped
+  user: "33:33" # www-data
+  read_only: true
+  # Caches de configuration PROPRES à chaque conteneur (l'image worker déclare les chemins des binaires, pas l'image
+  # app) : jamais partagés entre services.
+  tmpfs:
+    - /tmp:size=512m,mode=1777
+    - /var/www/html/bootstrap/cache:size=16m,uid=33,gid=33,mode=0755
+  volumes:
+    - ${SOXIAL_ENV_FILE:?SOXIAL_ENV_FILE requis}:/var/www/html/.env:ro
+    - storage-app:/var/www/html/storage/app
+    - storage-logs:/var/www/html/storage/logs
+    - storage-framework:/var/www/html/storage/framework
+  networks: [internal, egress]
+  depends_on:
+    mysql: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  logging: &logging
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  web:
+    image: ${SOXIAL_IMAGE_PREFIX:-soxialconnect}/web:${SOXIAL_VERSION:?SOXIAL_VERSION requis}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      SERVER_NAME: ${SERVER_NAME:?SERVER_NAME requis}
+    ports:
+      - "80:8080"
+      - "443:8443"
+    volumes:
+      - ${TLS_CERT_DIR:?TLS_CERT_DIR requis}:/etc/nginx/certs:ro
+      - acme-challenge:/var/www/certbot:ro
+    networks: [edge]
+    depends_on:
+      app: { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /etc/nginx/conf.d:size=1m,uid=101,gid=101
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  app:
+    <<: *backend
+    image: ${SOXIAL_IMAGE_PREFIX:-soxialconnect}/app:${SOXIAL_VERSION:?SOXIAL_VERSION requis}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: app
+    command: ["php-fpm", "--nodaemonize"]
+    networks: [edge, internal, egress]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clamav: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { memory: 1g }
+    stop_grace_period: 30s
+
+  # Publications, médias, statistiques : jobs courts.
+  worker-default:
+    <<: *backend
+    command: ["php", "artisan", "queue:work", "redis", "--queue=publishing,default,media,analytics", "--sleep=3", "--tries=3", "--timeout=280", "--max-time=3600", "--memory=256"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clamav: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { memory: 768m }
+    stop_grace_period: 5m # termine le job en cours (SIGTERM, pcntl) avant l'arrêt
+
+  # Appels aux fournisseurs IA (transcription, analyse, images).
+  worker-ai:
+    <<: *backend
+    command: ["php", "artisan", "queue:work", "redis", "--queue=ai", "--sleep=3", "--tries=1", "--timeout=300", "--max-time=3600", "--memory=256"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clamav: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { memory: 768m }
+    stop_grace_period: 6m
+
+  # Rendus vidéo (FFmpeg, Remotion/Chrome, whisper) : UN seul rendu à la fois (REMOTION_CONCURRENCY=1) ; Chrome
+  # headless 1080×1920 ≈ 1,5 à 2,5 Go en pointe. Délai d'un rendu : 30 min (VIDEO_RENDER_TIMEOUT).
+  worker-video:
+    <<: *backend
+    command: ["php", "artisan", "queue:work", "redis-video", "--queue=video", "--sleep=3", "--tries=1", "--timeout=1800", "--max-time=7200", "--memory=512"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clamav: { condition: service_healthy }
+    volumes:
+      - ${SOXIAL_ENV_FILE:?SOXIAL_ENV_FILE requis}:/var/www/html/.env:ro
+      - storage-app:/var/www/html/storage/app
+      - storage-logs:/var/www/html/storage/logs
+      - storage-framework:/var/www/html/storage/framework
+      - renderer-bundle:/opt/renderer/.bundle # bundle Remotion (reconstruit si absent)
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+      - /var/www/html/bootstrap/cache:size=16m,uid=33,gid=33,mode=0755
+    shm_size: 1g # Chrome headless
+    deploy:
+      resources:
+        limits: { memory: 3g, cpus: "2.0" }
+    stop_grace_period: 31m # un rendu en cours peut se terminer (au-delà, il est repris ou échoue proprement)
+
+  # Planificateur : publications à échéance, purges, statistiques, vérification des binaires LOCAUX (image worker).
+  scheduler:
+    <<: *backend
+    command: ["php", "artisan", "schedule:work"]
+    deploy:
+      resources:
+        limits: { memory: 512m }
+    stop_grace_period: 2m
+
+  mysql:
+    image: mysql:8.4.5
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sociopulse}
+      MYSQL_USER: ${MYSQL_USER:-sociopulse}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD requis}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD requis}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--innodb-buffer-pool-size=512M", "--binlog-expire-logs-seconds=604800"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    deploy:
+      resources:
+        limits: { memory: 1536m }
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  # Cache, verrous (quotas, jetons, publication, planificateur) et files : jamais d'éviction (noeviction), persistance AOF.
+  redis:
+    image: redis:7.4.3-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD requis}
+    volumes:
+      - redis-data:/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    deploy:
+      resources:
+        limits: { memory: 640m }
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  # Antivirus : clamd (port 3310 sur le réseau interne seulement) + freshclam (mises à jour des signatures, d'où egress).
+  # Base de signatures chargée en mémoire : ≈ 1,2 à 1,6 Go ; premier démarrage long (téléchargement des signatures).
+  clamav:
+    image: clamav/clamav:1.4.2
+    restart: unless-stopped
+    volumes:
+      - clamav-db:/var/lib/clamav
+      - ./clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+    networks: [internal, egress]
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 600s
+    deploy:
+      resources:
+        limits: { memory: 2560m }
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+volumes:
+  storage-app: # médias (originaux, vignettes, rendus), sources du Clipper, dossiers de travail vidéo
+  storage-logs:
+  storage-framework:
+  renderer-bundle:
+  mysql-data:
+  redis-data:
+  clamav-db:
+  acme-challenge:
+
+networks:
+  edge: # web ↔ PHP-FPM
+  internal:
+    internal: true # MySQL, Redis, ClamAV : aucun accès Internet, aucun port publié
+  egress: # sorties Internet des workers (API des réseaux, IA, YouTube) et mises à jour de ClamAV

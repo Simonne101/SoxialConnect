@@ -61,6 +61,7 @@ interface ApiAttempt {
   external_post_id: string | null
   started_at: string | null
   finished_at: string | null
+  warnings?: { code: string; message: string }[]
 }
 
 interface ApiPost {
@@ -371,6 +372,7 @@ export async function listAttempts(id: string): Promise<PublicationAttempt[]> {
       externalPostId: a.external_post_id,
       startedAt: a.started_at,
       finishedAt: a.finished_at,
+      warnings: a.warnings ?? [],
     }))
   }
   await delay(150)
@@ -541,6 +543,7 @@ function simulatePublication(postId: string) {
         externalPostId: null,
         startedAt: now,
         finishedAt: now,
+        warnings: [],
       })
     }
     post.status = aggregateStatus(post.variants, post.status)

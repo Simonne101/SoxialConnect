@@ -7,7 +7,9 @@ use App\Domain\Media\Enums\MediaStatus;
 use App\Domain\Media\Exceptions\MediaConflict;
 use App\Domain\Media\Support\MediaTag;
 use App\Domain\Media\Upload\MediaFileInspector;
+use App\Domain\Video\Enums\ClipStatus;
 use App\Domain\Video\Enums\RenderStatus;
+use App\Domain\Video\Enums\VideoProjectStatus;
 use App\Models\Media;
 use App\Models\PostVariant;
 use App\Models\User;
@@ -79,7 +81,21 @@ final class ManageMedia
             ->whereIn('status', array_map(fn (VariantStatus $s) => $s->value, self::BLOCKING_VARIANT_STATUSES))
             ->whereHas('post', fn ($post) => $post->whereHas('postMedia', fn ($pm) => $pm->where('media_id', $media->getKey())))
             ->exists()
-            || $this->isUsedByActiveVideoRender($media);
+            || $this->isUsedByActiveVideoRender($media)
+            || $this->isUsedByActiveClipping($media);
+    }
+
+    /** Vidéo source du YouTube Clipper en cours d'analyse ou dont un clip est en génération (ADR-046). */
+    private function isUsedByActiveClipping(Media $media): bool
+    {
+        $analyzing = [VideoProjectStatus::Pending->value, VideoProjectStatus::Analyzing->value, VideoProjectStatus::Transcribing->value, VideoProjectStatus::Detecting->value];
+
+        return VideoProject::query()
+            ->where('source_media_id', $media->getKey())
+            ->where(fn ($q) => $q
+                ->whereIn('status', $analyzing)
+                ->orWhereHas('clips', fn ($c) => $c->where('status', ClipStatus::Rendering->value)))
+            ->exists();
     }
 
     /** Média d'un projet vidéo (asset ou fond de scène) dont un rendu est en file ou en cours (ADR-044). */

@@ -2,6 +2,8 @@ import { AlertTriangle, Info, X } from "lucide-react"
 import { useId, useState, type KeyboardEvent } from "react"
 import { Link } from "react-router"
 import { MediaThumb } from "@/components/media/MediaThumb"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -88,8 +90,9 @@ interface Props {
   platform: PlatformKey
   variant: VariantDraft
   mainBody: string
-  account: SocialAccount | undefined
-  /** Comptes proposés pour ce réseau (connectés, plus le compte choisi s'il ne l'est plus). */
+  /** Comptes choisis (destinations), dans l'ordre du choix. */
+  selected: SocialAccount[]
+  /** Comptes proposés pour ce réseau (connectés, plus ceux choisis qui ne le sont plus). */
   accountChoices?: SocialAccount[]
   media: MediaAsset[]
   hashtagSuggestions: string[]
@@ -97,7 +100,7 @@ interface Props {
 }
 
 /** Panneau d'édition d'une variante : champs propres à chaque plateforme (docs UX-09). */
-export function VariantEditor({ platform, variant, mainBody, account, accountChoices = [], media, hashtagSuggestions, onChange }: Props) {
+export function VariantEditor({ platform, variant, mainBody, selected, accountChoices = [], media, hashtagSuggestions, onChange }: Props) {
   const cfg = PLATFORMS[platform]
   const fields = cfg.variantFields
   const uid = useId()
@@ -111,36 +114,68 @@ export function VariantEditor({ platform, variant, mainBody, account, accountCho
   const length = platform === "x" ? xWeightedLength(sent) : text.length + hashtagsLen
   const videos = media.filter((m) => m.type === "video")
   const images = media.filter((m) => m.type === "image")
+  // Une seule destination : ses sous-entités (ex. pages) restent sélectionnables comme avant.
+  const account = selected.length === 1 ? selected[0] : undefined
+  const notReady = selected.filter((a) => a.status !== "connected")
+  const connectedIds = accountChoices.filter((a) => a.status === "connected").map((a) => a.id)
+  const toggleAccount = (id: string, checked: boolean) =>
+    onChange({ accountIds: checked ? [...variant.accountIds.filter((x) => x !== id), id] : variant.accountIds.filter((x) => x !== id) })
 
   return (
     <div className="space-y-5">
-      {account && account.status !== "connected" && (
-        <p role="alert" className="flex items-start gap-2 rounded-xl bg-warning-50 px-3.5 py-3 text-sm text-warning-700">
+      {notReady.map((a) => (
+        <p key={a.id} role="alert" className="flex items-start gap-2 rounded-xl bg-warning-50 px-3.5 py-3 text-sm text-warning-700">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>
-            {account.statusMessage ?? ACCOUNT_STATUS[account.status].hint}{" "}
-            <Link to="/social-accounts" className="font-semibold underline">Reconnecter {cfg.name}</Link>
+            <span className="font-semibold">{accountLabel(a)}</span> : {a.statusMessage ?? ACCOUNT_STATUS[a.status].hint}{" "}
+            <Link to="/social-accounts" className="font-semibold underline">Reconnecter</Link> ou décochez ce compte.
           </span>
         </p>
+      ))}
+
+      {accountChoices.length > 1 && (
+        <fieldset className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <legend className="text-[13px] font-semibold text-ink">
+              {platform === "telegram" ? "Chaînes et groupes de destination" : "Comptes de destination"}
+              <span className="ml-1.5 font-normal text-ink-muted">({variant.accountIds.length} sur {accountChoices.length})</span>
+            </legend>
+            <div className="flex gap-1">
+              <Button type="button" variant="ghost" size="sm" disabled={connectedIds.every((id) => variant.accountIds.includes(id))} onClick={() => onChange({ accountIds: [...new Set([...variant.accountIds, ...connectedIds])] })}>
+                Tout sélectionner
+              </Button>
+              <Button type="button" variant="ghost" size="sm" disabled={variant.accountIds.length === 0} onClick={() => onChange({ accountIds: [] })}>
+                Aucun
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-ink-muted">Une publication distincte est envoyée et suivie pour chaque compte coché.</p>
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {accountChoices.map((a) => {
+              const checked = variant.accountIds.includes(a.id)
+              const ready = a.status === "connected"
+              return (
+                <li key={a.id}>
+                  <Label htmlFor={`${uid}-acc-${a.id}`} className={cn("flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 text-sm font-normal has-data-[state=checked]:border-brand-500 has-data-[state=checked]:bg-brand-50", !ready && !checked && "cursor-not-allowed opacity-60")}>
+                    <Checkbox id={`${uid}-acc-${a.id}`} checked={checked} disabled={!ready && !checked} onCheckedChange={(c) => toggleAccount(a.id, c === true)} />
+                    <span className="min-w-0 flex-1 truncate">{accountLabel(a)}</span>
+                    {!ready && <span className="shrink-0 text-xs text-warning-700">{ACCOUNT_STATUS[a.status].label}</span>}
+                  </Label>
+                </li>
+              )
+            })}
+          </ul>
+        </fieldset>
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label className="text-[13px] font-semibold" htmlFor={`${uid}-account`}>{platform === "telegram" ? "Chaîne ou groupe" : "Compte"}</Label>
-          {accountChoices.length > 1 || (!account && accountChoices.length > 0) ? (
-            // Plusieurs comptes du réseau (ou compte choisi disparu) : choix explicite, par identifiant.
-            <Select value={account?.id ?? ""} onValueChange={(id) => onChange({ accountId: id })}>
-              <SelectTrigger id={`${uid}-account`} className="w-full" aria-invalid={!account}>
-                <SelectValue placeholder="Choisir un compte" />
-              </SelectTrigger>
-              <SelectContent>
-                {accountChoices.map((a) => (
-                  <SelectItem key={a.id} value={a.id} disabled={a.status !== "connected"}>
-                    {accountLabel(a)}{a.status !== "connected" ? " — à reconnecter" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {accountChoices.length > 1 ? (
+            // Plusieurs comptes : choix par cases à cocher ci-dessus ; résumé ici.
+            <p id={`${uid}-account`} className={cn("flex h-10 items-center rounded-lg border border-border bg-muted/50 px-3 text-sm", selected.length ? "text-ink-soft" : "text-danger-700")}>
+              {selected.length === 0 ? "Aucun compte coché" : selected.length === 1 ? accountLabel(selected[0]) : `${selected.length} comptes`}
+            </p>
           ) : account && account.entities.length > 1 ? (
             <Select value={variant.options.accountEntityId ?? account.entities[0].id} onValueChange={(v) => setOpt({ accountEntityId: v })}>
               <SelectTrigger id={`${uid}-account`} className="w-full">
@@ -156,7 +191,7 @@ export function VariantEditor({ platform, variant, mainBody, account, accountCho
             </Select>
           ) : (
             <p id={`${uid}-account`} className="flex h-10 items-center rounded-lg border border-border bg-muted/50 px-3 text-sm text-ink-soft">
-              {account?.entities[0]?.name ?? (account ? accountLabel(account) : "Aucun compte connecté")}
+              {account?.entities[0]?.name ?? (account ? accountLabel(account) : accountChoices[0] ? "Aucun compte coché" : "Aucun compte connecté")}
             </p>
           )}
         </div>
@@ -298,8 +333,8 @@ export function VariantEditor({ platform, variant, mainBody, account, accountCho
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor={`${uid}-yt-vis`} className="text-[13px] font-semibold">Visibilité</Label>
-            <Select value={variant.options.youtubeVisibility ?? "public"} onValueChange={(v) => setOpt({ youtubeVisibility: v as VariantOptions["youtubeVisibility"] })}>
-              <SelectTrigger id={`${uid}-yt-vis`} className="w-full">
+            <Select value={variant.options.youtubeVisibility ?? "private"} onValueChange={(v) => setOpt({ youtubeVisibility: v as VariantOptions["youtubeVisibility"] })}>
+              <SelectTrigger id={`${uid}-yt-vis`} className="w-full" aria-describedby={`${uid}-yt-vis-hint`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -308,6 +343,9 @@ export function VariantEditor({ platform, variant, mainBody, account, accountCho
                 <SelectItem value="private">Privée</SelectItem>
               </SelectContent>
             </Select>
+            <p id={`${uid}-yt-vis-hint`} className="text-xs text-ink-muted">
+              Envoyée telle quelle à YouTube. Si YouTube applique une autre visibilité, l'historique des envois le signale.
+            </p>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 sm:mt-6">
             <Label htmlFor={`${uid}-kids`} className="text-sm font-normal">Conçue pour les enfants</Label>

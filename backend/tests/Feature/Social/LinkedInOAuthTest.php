@@ -154,6 +154,19 @@ class LinkedInOAuthTest extends TestCase
         $this->assertNull(SocialAccount::sole()->username);
     }
 
+    public function test_a_second_member_is_added_without_replacing_the_first(): void
+    {
+        $this->fakeLinkedIn(['access_token' => 'AQX-member-a']);
+        $this->oauthReturn(['state' => $this->startConnect()['query']['state'], 'code' => 'c1'])->assertRedirect(self::BACK.'connected');
+        $this->fakeLinkedIn(['access_token' => 'AQX-member-b'], ['sub' => 'li-member-other', 'name' => 'Compte B']);
+        $this->oauthReturn(['state' => $this->startConnect()['query']['state'], 'code' => 'c2'])->assertRedirect(self::BACK.'connected');
+
+        $accounts = SocialAccount::query()->orderBy('created_at')->get();
+        $this->assertSame([self::LI_SUB, 'li-member-other'], $accounts->pluck('external_account_id')->all());
+        $this->assertSame(['AQX-member-a', 'AQX-member-b'], $accounts->map(fn ($a) => SocialToken::where('social_account_id', $a->id)->where('status', 'active')->sole()->access_token_encrypted)->all());
+        $this->assertDatabaseMissing('audit_logs', ['action' => 'OAUTH_RECONNECTED']);
+    }
+
     public function test_reconnecting_updates_the_same_account_and_replaces_the_token(): void
     {
         $this->fakeLinkedIn();

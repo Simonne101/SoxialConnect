@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Video;
 
+use App\Domain\Video\Rendering\ExecutableCheck;
 use App\Domain\Video\Rendering\FfmpegBinary;
 use App\Domain\Video\Rendering\FfmpegVideoRenderer;
 use App\Domain\Video\Rendering\ProbeResult;
@@ -199,17 +200,17 @@ class RenderPipelineTest extends TestCase
         $this->assertFalse(app(VideoRenderService::class)->rendererAvailable());
     }
 
-    public function test_a_missing_binary_is_only_remembered_briefly(): void
+    public function test_a_missing_binary_is_never_shared_with_other_processes(): void
     {
         $binary = 'ffmpeg-introuvable-'.uniqid();
         config(['video.binaries.ffmpeg' => $binary]);
         Cache::flush();
 
         $this->assertFalse((new FfmpegBinary)->isAvailable());
-        $this->assertFalse(Cache::get('video:binary-available:'.hash('sha256', $binary)));
-
-        // Démarrage lent ou installation récente : l'échec n'est pas retenu 5 minutes.
-        $this->travel(31)->seconds();
-        $this->assertNull(Cache::get('video:binary-available:'.hash('sha256', $binary)));
+        // ADR-060 : un échec n'est mémorisé que dans le processus qui l'a constaté (30 s), jamais dans le
+        // cache partagé : un autre processus (worker, installation récente) revérifie aussitôt.
+        $this->assertFalse(Cache::has('video:executable:ffmpeg:'.hash('sha256', $binary.'|path')));
+        app(ExecutableCheck::class)->forget('ffmpeg', $binary); // équivalent d'un nouveau processus
+        $this->assertFalse((new FfmpegBinary)->isAvailable(), 'Toujours absent : revérifié, pas lu dans un cache.');
     }
 }

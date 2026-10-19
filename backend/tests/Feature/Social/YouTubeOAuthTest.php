@@ -226,6 +226,41 @@ class YouTubeOAuthTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'OAUTH_RECONNECTED']);
     }
 
+    public function test_a_second_channel_is_added_without_replacing_the_first_and_owners_stay_isolated(): void
+    {
+        $scope = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly';
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::sequence()
+                ->push(['access_token' => 'ya29.channel-1', 'refresh_token' => '1//refresh-1', 'expires_in' => 3599, 'scope' => $scope])
+                ->push(['access_token' => 'ya29.channel-2', 'refresh_token' => '1//refresh-2', 'expires_in' => 3599, 'scope' => $scope])
+                ->push(['access_token' => 'ya29.other-user', 'refresh_token' => '1//refresh-3', 'expires_in' => 3599, 'scope' => $scope]),
+            'www.googleapis.com/youtube/v3/channels*' => Http::sequence()
+                ->push(['items' => [['id' => 'UC_channel_1', 'snippet' => ['title' => 'Chaîne 1']]]])
+                ->push(['items' => [['id' => 'UC_channel_2', 'snippet' => ['title' => 'Chaîne 2']]]])
+                ->push(['items' => [['id' => 'UC_channel_1', 'snippet' => ['title' => 'Chaîne 1']]]]),
+        ]);
+        $other = User::factory()->create();
+
+        foreach ([[$this->user, 'c1'], [$this->user, 'c2'], [$other, 'c3']] as [$owner, $code]) {
+            $this->oauthReturn(['state' => $this->startConnect($owner)['query']['state'], 'code' => $code], $owner)
+                ->assertRedirect('http://localhost:5173/social-accounts?oauth=youtube&status=connected');
+        }
+
+        // Deux chaînes distinctes pour l'utilisateur, chacune avec SES jetons ; la première est intacte.
+        $mine = SocialAccount::query()->where('user_id', $this->user->id)->orderBy('external_account_id')->get();
+        $this->assertSame(['UC_channel_1', 'UC_channel_2'], $mine->pluck('external_account_id')->all());
+        $tokenOf = fn (SocialAccount $a) => SocialToken::where('social_account_id', $a->id)->where('status', 'active')->sole();
+        $this->assertSame(['ya29.channel-1', '1//refresh-1'], [$tokenOf($mine[0])->access_token_encrypted, $tokenOf($mine[0])->refresh_token_encrypted]);
+        $this->assertSame('ya29.channel-2', $tokenOf($mine[1])->access_token_encrypted);
+        $this->assertSame(['connected', 'connected'], $mine->map(fn ($a) => $a->status->value)->all());
+
+        // La même chaîne connectée par un autre utilisateur : compte séparé, jamais partagé ni écrasé.
+        $theirs = SocialAccount::query()->where('user_id', $other->id)->sole();
+        $this->assertNotSame($mine[0]->id, $theirs->id);
+        $this->assertSame('ya29.channel-1', $tokenOf($mine[0])->access_token_encrypted);
+        $this->actingAs($this->user)->fromSpa()->getJson('/api/v1/social/accounts')->assertOk()->assertJsonCount(2, 'data');
+    }
+
     // --- Déconnexion et propriété -------------------------------------------------------------
 
     public function test_disconnect_revokes_at_google_and_erases_tokens(): void

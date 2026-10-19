@@ -36,6 +36,15 @@ API (publier, réessayer, annuler)      Planificateur (chaque minute)
 Le statut du post est toujours **agrégé** à partir de ses variantes (`PostStatusAggregator`).
 Tant qu'une variante est en file ou en cours d'envoi, le post est « En cours » (`processing`).
 
+**Points d'entrée côté interface : un seul parcours, le Composer** (`/content/create`). Médias
+(barre de sélection ou aperçu → « Publier sur les réseaux ») et Clipper (« Publier » / « Planifier »
+sur un clip prêt) y arrivent avec `state.mediaIds` : la vidéo de la médiathèque est **référencée**
+(`post_media`), jamais copiée. Avant toute publication ou programmation, un **récapitulatif**
+(réseaux et comptes, média, texte, visibilité réellement transmise) demande confirmation ; rien
+n'est enregistré avant. Après confirmation, la liste (ou le calendrier) s'ouvre sur le détail de
+la publication : état de chaque réseau, rafraîchi pendant l'envoi, « Réessayer » limité aux réseaux
+en échec (ADR-066).
+
 ## 2. Cycle de vie d'une variante
 
 ```
@@ -239,6 +248,10 @@ L'audit enregistre `POST_PUBLISH_REQUESTED`, `POST_PUBLISH_RETRIED`, `POST_PUBLI
   lit dans la liste des publications et dans la fiche détail.
 - Le planificateur recherche au niveau du post (`posts.scheduled_at`). Les dates par variante
   différentes de celle du post ne sont pas encore proposées par le Composer.
+- Vidéo de la médiathèque : publiable sur YouTube (une seule vidéo), Telegram (MP4 ≤ 50 Mo) et
+  TikTok (si un compte est connecté). LinkedIn et X : texte seul (le Composer bloque, le serveur
+  refuse `MEDIA_NOT_SUPPORTED` sans appel). Facebook, Instagram, Pinterest, Threads : pas
+  d'adaptateur de publication (une variante y échouerait en `NOT_CONFIGURED`, rien n'est envoyé).
 
 ## 11. YouTube (premier connecteur réel)
 
@@ -313,9 +326,14 @@ l'autorisation est révoquée.
 - `selfDeclaredMadeForKids` : seulement si l'option est renseignée ;
 - `<` et `>` sont retirés, car YouTube les refuse.
 
-**`privacyStatus` est toujours `private`** pendant cette phase, quelle que soit l'option
-« Visibilité » du Composer. Rien n'est publié publiquement sans action manuelle dans YouTube
-Studio.
+**`privacyStatus` = option « Visibilité » du Composer** (`youtubeVisibility` : `public`,
+`unlisted` ou `private`, liste blanche stricte). Option absente ou invalide : `private` — jamais de
+publication publique implicite. La visibilité renvoyée par YouTube est comparée à la demande
+(`publication_attempts.response_excerpt` : `privacy_requested`, `privacy_status`,
+`privacy_mismatch`). Un écart reste une **réussite** (la vidéo existe), mais il est journalisé
+(`publishing.youtube_visibility_mismatch`) et affiché comme avertissement dans « Historique des
+envois » (`warnings`, code `VISIBILITY_MISMATCH`). Cause connue : tant que le projet Google Cloud
+n'est pas audité, YouTube peut limiter les vidéos envoyées par l'API à « Privée » (ADR-065).
 
 **Erreurs.** Le moteur Phase 1 décide des relances ; il n'y a pas de logique de relance propre à
 YouTube.
@@ -379,7 +397,8 @@ l'application, avec le cookie de session.
 5. Dans la fiche de la publication :
    - la tentative doit être « Réussie » et le statut « Publiée » ;
    - `publication_attempts.external_post_id` contient le `videoId`.
-6. Vérifiez la vidéo **privée** dans YouTube Studio.
+6. Vérifiez dans YouTube Studio que la visibilité correspond au choix du Composer (sinon, l'historique
+   des envois affiche un avertissement).
 
 **Déconnexion** : Réseaux sociaux → YouTube → **Gérer → Déconnecter**. L'accès est révoqué chez
 Google, puis les tokens sont effacés.
@@ -393,7 +412,7 @@ Google, puis les tokens sont effacés.
 | Message « pas encore configurée » | Variables `YOUTUBE_*` vides, ou configuration en cache (`php artisan config:clear`). |
 | « Demande expirée » (`INVALID_STATE`) | Plus de 10 minutes sur Google, onglet rejoué, ou connexion ouverte avec un autre utilisateur SoxialConnect. |
 | `QUOTA_EXCEEDED` | Quota quotidien du projet atteint (10 000 unités par défaut ; un envoi en coûte environ 1 600). Réessayez le lendemain, ou demandez une extension. |
-| Vidéo verrouillée « privée » | Normal : c'est le choix de cette phase. Tant que le projet Google n'est pas audité, YouTube force aussi les vidéos en privé. |
+| Vidéo « privée » alors que « Publique » était choisie (avertissement `VISIBILITY_MISMATCH`) | Projet Google Cloud non audité : YouTube limite les vidéos envoyées par l'API à « Privée ». Demander l'audit de l'API YouTube Data, ou changer la visibilité dans YouTube Studio si elle n'est pas verrouillée. |
 
 ## 13. Telegram (Bot API, bot partagé)
 

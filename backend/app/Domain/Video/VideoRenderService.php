@@ -2,17 +2,12 @@
 
 namespace App\Domain\Video;
 
-use App\Domain\Media\Enums\MediaStatus;
-use App\Domain\Media\Enums\MediaType;
-use App\Domain\Media\Enums\ScanStatus;
-use App\Domain\Media\Security\MediaSecurityScanner;
-use App\Domain\Media\Security\ScanPolicy;
-use App\Domain\Media\Storage\MediaStorage;
 use App\Domain\Video\Enums\RenderStatus;
 use App\Domain\Video\Enums\VideoProjectStatus;
 use App\Domain\Video\Exceptions\VideoConflict;
 use App\Domain\Video\Rendering\FfmpegBinary;
 use App\Domain\Video\Rendering\RenderedVideo;
+use App\Domain\Video\Rendering\RenderedVideoPublisher;
 use App\Domain\Video\Rendering\RenderFailure;
 use App\Domain\Video\Support\VideoProjectLock;
 use App\Jobs\RenderVideoJob;
@@ -21,7 +16,6 @@ use App\Models\VideoProject;
 use App\Models\VideoRenderJob;
 use App\Models\VideoTimelineItem;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * Rendus MP4 (ADR-044, ADR-045) :
@@ -37,9 +31,7 @@ final class VideoRenderService
 {
     public function __construct(
         private readonly FfmpegBinary $ffmpeg,
-        private readonly MediaStorage $storage,
-        private readonly MediaSecurityScanner $scanner,
-        private readonly ScanPolicy $scanPolicy,
+        private readonly RenderedVideoPublisher $publisher,
     ) {}
 
     /** Moteur utilisable : FFmpeg (production) et FFprobe (analyse, validation). */
@@ -129,75 +121,21 @@ final class VideoRenderService
      */
     public function complete(VideoRenderJob $render, RenderedVideo $video): bool
     {
-        if ($this->scanPolicy->isRequired() && ! $this->scanner->isAvailable()) {
-            throw new RenderFailure('SCAN_UNAVAILABLE', 'L\'analyse de sécurité des fichiers est indisponible : la vidéo n\'a pas été publiée.');
-        }
-        $scan = $this->scanner->scan($video->path);
-        if ($scan->status === ScanStatus::Infected || $scan->status === ScanStatus::Error) {
-            throw new RenderFailure('SCAN_FAILED', 'La vidéo produite n\'a pas passé l\'analyse de sécurité.');
-        }
-
         $project = VideoProject::query()->findOrFail($render->video_project_id);
-        $media = new Media;
-        $media->id = (string) Str::uuid7();
-        $media->user_id = $render->user_id;
-        $media->type = MediaType::Video;
-        $media->status = MediaStatus::Ready;
-        $media->original_name = Str::limit(trim($project->title) ?: 'Vidéo', 120, '').'.mp4';
-        $media->disk = $this->storage->diskName();
-        $media->path = $this->storage->pathFor($render->user_id, $media->id, MediaStorage::ORIGINAL, 'mp4');
-        $media->mime_type = 'video/mp4';
-        $media->extension = 'mp4';
-        $media->size_bytes = $video->sizeBytes;
-        $media->checksum_sha256 = hash_file('sha256', $video->path);
-        $media->width = $video->probe->width;
-        $media->height = $video->probe->height;
-        $media->duration_ms = $video->probe->durationMs;
-        $media->scan_status = $scan->status;
-        $media->scanned_at = $scan->wasScanned() ? now() : null;
-        $media->metadata = ['format' => 'mp4', 'source' => 'video_studio', 'video_render_id' => $render->getKey(), 'video_processing' => 'ffmpeg'];
+        $metadata = ['source' => 'video_studio', 'video_render_id' => $render->getKey()];
 
-        $this->putFile($media->path, $video->path);
-        if ($video->thumbnailPath !== null) {
-            $thumb = $this->storage->pathFor($render->user_id, $media->id, MediaStorage::THUMBNAIL, 'jpg');
-            $this->putFile($thumb, $video->thumbnailPath);
-            $media->derivatives = [MediaStorage::THUMBNAIL => ['path' => $thumb, 'mime_type' => 'image/jpeg', 'size_bytes' => filesize($video->thumbnailPath)]];
-        }
-
-        try {
-            $published = DB::transaction(function () use ($render, $media) {
-                $locked = VideoRenderJob::query()->whereKey($render->getKey())->lockForUpdate()->firstOrFail();
-                if ($locked->status !== RenderStatus::Rendering) {
-                    return false; // annulé pendant l'encodage : rien n'est publié
-                }
-                $media->save();
-                $locked->forceFill(['status' => RenderStatus::Succeeded, 'progress' => 100, 'output_media_id' => $media->id, 'finished_at' => now(), 'error_code' => null, 'error_message' => null])->save();
-                VideoProject::query()->whereKey($locked->video_project_id)
-                    ->update(['status' => VideoProjectStatus::Ready->value, 'last_render_id' => $locked->getKey()]);
-
-                return true;
-            });
-        } catch (\Throwable $e) {
-            $this->storage->deleteAll($media);
-            throw $e;
-        }
-        if (! $published) {
-            $this->storage->deleteAll($media); // aucun fichier orphelin
-        }
-
-        return $published;
-    }
-
-    private function putFile(string $path, string $localFile): void
-    {
-        $stream = fopen($localFile, 'rb');
-        try {
-            $this->storage->put($path, $stream);
-        } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
+        return $this->publisher->publish($render->user_id, $project->title ?: 'Vidéo', $video, $metadata, function (Media $media) use ($render) {
+            $locked = VideoRenderJob::query()->whereKey($render->getKey())->lockForUpdate()->firstOrFail();
+            if ($locked->status !== RenderStatus::Rendering) {
+                return false; // annulé pendant l'encodage : rien n'est publié
             }
-        }
+            $media->save();
+            $locked->forceFill(['status' => RenderStatus::Succeeded, 'progress' => 100, 'output_media_id' => $media->id, 'finished_at' => now(), 'error_code' => null, 'error_message' => null])->save();
+            VideoProject::query()->whereKey($locked->video_project_id)
+                ->update(['status' => VideoProjectStatus::Ready->value, 'last_render_id' => $locked->getKey()]);
+
+            return true;
+        }) !== null;
     }
 
     public function cancel(VideoRenderJob $render): VideoRenderJob

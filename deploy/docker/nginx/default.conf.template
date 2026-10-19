@@ -1,0 +1,101 @@
+# SoxialConnect — Nginx de production (modèle : ${SERVER_NAME} est remplacé au démarrage du conteneur).
+# - 8080 : HTTP → redirection HTTPS (sauf validation ACME et sonde de santé interne) ;
+# - 8443 : HTTPS (certificats montés en lecture seule) : SPA statique + API Laravel relayée en FastCGI vers « app ».
+# PHP reçoit directement l'IP du client (REMOTE_ADDR) et HTTPS=on : aucun en-tête X-Forwarded-* n'est cru.
+
+server_tokens off;
+
+# Limites de débit en amont de Laravel (filet de sécurité ; les vraies limites sont dans l'application).
+limit_req_zone $binary_remote_addr zone=api:10m rate=20r/s;
+limit_req_zone $binary_remote_addr zone=auth:10m rate=2r/s;
+
+upstream laravel {
+    server app:9000;
+    keepalive 8;
+}
+
+server {
+    listen 8080;
+    listen [::]:8080;
+    server_name ${SERVER_NAME};
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 8443 ssl;
+    listen [::]:8443 ssl;
+    http2 on;
+    server_name ${SERVER_NAME};
+
+    ssl_certificate /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Corps limités par défaut (JSON : 1 Mo dans l'application) ; seuls les imports de médias vont au-delà.
+    client_max_body_size 2m;
+    client_body_timeout 60s;
+    send_timeout 60s;
+
+    # --- API Laravel ------------------------------------------------------------------------------------------------
+    location = /api/v1/media {
+        client_max_body_size 1100m;
+        client_body_timeout 600s;
+        limit_req zone=api burst=10 nodelay;
+        include /etc/nginx/snippets/laravel-fastcgi.conf;
+        fastcgi_read_timeout 600s;
+    }
+
+    location ~ ^/api/v1/auth/(login|register|forgot-password|reset-password|two-factor-challenge)$ {
+        limit_req zone=auth burst=5 nodelay;
+        include /etc/nginx/snippets/laravel-fastcgi.conf;
+    }
+
+    location ~ ^/(api|sanctum|oauth|email)/ {
+        limit_req zone=api burst=40 nodelay;
+        include /etc/nginx/snippets/laravel-fastcgi.conf;
+    }
+
+    location = /up {
+        access_log off;
+        include /etc/nginx/snippets/laravel-fastcgi.conf;
+    }
+
+    # --- SPA ----------------------------------------------------------------------------------------------------------
+    # Fichiers compilés à nom haché : cache long et immuable.
+    location /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    location / {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri /index.html;
+    }
+
+    # Fichiers cachés (.env, .git…) : jamais servis.
+    location ~ /\. {
+        deny all;
+    }
+}

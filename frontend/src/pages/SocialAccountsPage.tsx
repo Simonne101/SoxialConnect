@@ -49,6 +49,8 @@ export default function SocialAccountsPage() {
   // Adresse non vérifiée : la page reste utilisable, mais connecter un réseau exige la vérification.
   const unverified = isApiEnabled && me.data?.emailVerified === false
   const [connectFor, setConnectFor] = useState<SocialAccount | null>(null)
+  // Ajout d'un compte supplémentaire (réseau déjà connecté) : consignes de choix du compte affichées.
+  const [addingAnother, setAddingAnother] = useState(false)
   const [manageId, setManageId] = useState<string | null>(null)
   const [params, setParams] = useSearchParams()
   const qc = useQueryClient()
@@ -171,7 +173,7 @@ export default function SocialAccountsPage() {
                         {isApiEnabled && firstRowIds.has(a.id) && (
                           <Button
                             variant="secondary"
-                            onClick={() => setConnectFor(placeholderAccount(a.platform))}
+                            onClick={() => { setAddingAnother(true); setConnectFor(placeholderAccount(a.platform)) }}
                             aria-label={a.platform === "telegram" ? "Ajouter une autre chaîne ou un autre groupe Telegram" : `Ajouter un autre compte ${cfg.name}`}
                           >
                             Ajouter
@@ -187,7 +189,7 @@ export default function SocialAccountsPage() {
         )}
       </section>
 
-      <ConnectDialog account={connectFor} onOpenChange={(o) => !o && setConnectFor(null)} />
+      <ConnectDialog account={connectFor} addingAnother={addingAnother} onOpenChange={(o) => { if (!o) { setConnectFor(null); setAddingAnother(false) } }} />
       <ManageAccountSheet account={manage} onOpenChange={(o) => !o && setManageId(null)} onReconnect={(a) => { setManageId(null); setConnectFor(a) }} />
     </>
   )

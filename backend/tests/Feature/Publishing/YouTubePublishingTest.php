@@ -12,14 +12,18 @@ use App\Models\Post;
 use App\Models\PostVariant;
 use App\Models\PublicationAttempt;
 use App\Models\SocialAccount;
+use App\Models\SocialToken;
 use App\Models\User;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Social\Concerns\YouTubeFixtures;
 use Tests\TestCase;
 
@@ -42,6 +46,9 @@ class YouTubePublishingTest extends TestCase
     /** Contenu reçu par le faux YouTube (lu pendant la requête : le flux est fermé ensuite). */
     private ?string $uploadedBody = null;
 
+    /** Visibilité reçue par le faux YouTube à l'ouverture de session (renvoyée telle quelle par défaut). */
+    private ?string $sentPrivacy = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -60,6 +67,8 @@ class YouTubePublishingTest extends TestCase
     {
         Http::fake(function (Request $request) use ($session, $upload) {
             if ($request->method() === 'POST' && str_contains($request->url(), 'upload/youtube/v3/videos')) {
+                $this->sentPrivacy = $request->data()['status']['privacyStatus'] ?? null;
+
                 return $session ?? Http::response('', 200, ['Location' => self::UPLOAD_SESSION]);
             }
             if ($request->method() === 'PUT' && $request->url() === self::UPLOAD_SESSION) {
@@ -68,7 +77,7 @@ class YouTubePublishingTest extends TestCase
                 return $upload ? $upload() : Http::response([
                     'kind' => 'youtube#video',
                     'id' => 'dQw4w9WgXcQ',
-                    'status' => ['uploadStatus' => 'uploaded', 'privacyStatus' => 'private'],
+                    'status' => ['uploadStatus' => 'uploaded', 'privacyStatus' => $this->sentPrivacy],
                 ], 200);
             }
 
@@ -118,8 +127,9 @@ class YouTubePublishingTest extends TestCase
         $this->assertSame('https://www.youtube.com/watch?v=dQw4w9WgXcQ', $variant->external_url);
         $this->assertSame('published', $post->fresh()->status->value);
         $this->assertSame('private', $attempt->response_excerpt['privacy_status']);
+        $this->assertFalse($attempt->response_excerpt['privacy_mismatch']);
 
-        // Session : jeton serveur, métadonnées mappées, vidéo PRIVÉE, taille et type du fichier.
+        // Session : jeton serveur, métadonnées mappées, visibilité absente → PRIVÉE, taille et type du fichier.
         Http::assertSent(function (Request $r) {
             if ($r->method() !== 'POST') {
                 return false;
@@ -149,7 +159,6 @@ class YouTubePublishingTest extends TestCase
 
         $this->assertSame('Titre du post', $publisher->metadata($request([], 'Titre du post'))['snippet']['title']);
         $this->assertSame('Ligne un', $publisher->metadata($request([], null))['snippet']['title']);
-        $this->assertSame('private', $publisher->metadata($request(['youtubeVisibility' => 'public'], null))['status']['privacyStatus']);
     }
 
     public function test_an_already_published_video_is_never_uploaded_twice(): void
@@ -356,5 +365,128 @@ class YouTubePublishingTest extends TestCase
         foreach ([self::ACCESS_TOKEN, self::REFRESH_TOKEN, 'test-client-secret'] as $secret) {
             $this->assertStringNotContainsString($secret, $json);
         }
+    }
+
+    // --- Visibilité (ADR-065) ------------------------------------------------------------------
+
+    /** @return array<string, array{string}> */
+    public static function visibilities(): array
+    {
+        return ['publique' => ['public'], 'non répertoriée' => ['unlisted'], 'privée' => ['private']];
+    }
+
+    #[DataProvider('visibilities')]
+    public function test_the_visibility_chosen_in_the_composer_is_sent_and_confirmed(string $visibility): void
+    {
+        Queue::fake();
+        $this->fakeYouTube();
+        $post = $this->createPost(['targets' => [['social_account_id' => $this->account->id, 'format' => 'video', 'options' => ['youtubeVisibility' => $visibility]]]]);
+
+        $this->publishAndRun($post);
+
+        Http::assertSent(fn (Request $r) => $r->method() === 'POST' && $r->data()['status']['privacyStatus'] === $visibility);
+        $attempt = PublicationAttempt::sole();
+        $this->assertSame('succeeded', $attempt->status->value);
+        $this->assertSame([$visibility, $visibility, false], [$attempt->response_excerpt['privacy_requested'], $attempt->response_excerpt['privacy_status'], $attempt->response_excerpt['privacy_mismatch']]);
+        $this->assertArrayNotHasKey('warnings', $attempt->response_excerpt);
+        $this->actingAs($this->user)->fromSpa()->getJson("/api/v1/content/posts/{$post->id}/attempts")->assertOk()->assertJsonPath('data.0.warnings', []);
+    }
+
+    public function test_a_missing_or_invalid_visibility_falls_back_to_private_never_public(): void
+    {
+        $publisher = app(YouTubePublisher::class);
+        $privacy = fn (array $options) => $publisher->metadata(new PublishRequest('p', 'v', 'a', 'youtube', 'UC', 'video', 'Texte', $options, [], 'k', 1))['status']['privacyStatus'];
+
+        foreach ([[], ['youtubeVisibility' => null], ['youtubeVisibility' => ''], ['youtubeVisibility' => 'PUBLIC'], ['youtubeVisibility' => ' public'],
+            ['youtubeVisibility' => 'publique'], ['youtubeVisibility' => ['public']], ['youtubeVisibility' => true], ['privacy' => 'public']] as $options) {
+            $this->assertSame('private', $privacy($options), json_encode($options));
+        }
+
+        // Une valeur hors liste blanche est refusée dès l'enregistrement.
+        $this->actingAs($this->user)->fromSpa()->postJson('/api/v1/content/posts', [
+            'mode' => 'draft', 'body' => 'Texte', 'media_ids' => [$this->video->id],
+            'targets' => [['social_account_id' => $this->account->id, 'format' => 'video', 'options' => ['youtubeVisibility' => 'publique']]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('targets.0.options.youtubeVisibility');
+    }
+
+    public function test_made_for_kids_is_sent_alongside_the_visibility_only_when_set(): void
+    {
+        $publisher = app(YouTubePublisher::class);
+        $status = fn (array $options) => $publisher->metadata(new PublishRequest('p', 'v', 'a', 'youtube', 'UC', 'video', 'Texte', $options, [], 'k', 1))['status'];
+
+        $this->assertSame(['privacyStatus' => 'public', 'selfDeclaredMadeForKids' => true], $status(['youtubeVisibility' => 'public', 'madeForKids' => true]));
+        $this->assertSame(['privacyStatus' => 'unlisted', 'selfDeclaredMadeForKids' => false], $status(['youtubeVisibility' => 'unlisted', 'madeForKids' => false]));
+        $this->assertSame(['privacyStatus' => 'private'], $status([]));
+    }
+
+    public function test_a_visibility_changed_by_youtube_stays_a_success_with_a_traced_and_visible_warning(): void
+    {
+        Queue::fake();
+        $logged = [];
+        Event::listen(MessageLogged::class, function (MessageLogged $e) use (&$logged) {
+            $logged[] = [$e->message, $e->context];
+        });
+        $responses = [['uploadStatus' => 'uploaded', 'privacyStatus' => 'private'], ['uploadStatus' => 'uploaded']];
+        $this->fakeYouTube(upload: function () use (&$responses) {
+            return Http::response(['kind' => 'youtube#video', 'id' => 'vid'.count($responses), 'status' => array_shift($responses)], 200);
+        });
+        $targets = ['targets' => [['social_account_id' => $this->account->id, 'format' => 'video', 'options' => ['youtubeVisibility' => 'public']]]];
+        $post = $this->createPost($targets);
+
+        $this->publishAndRun($post);
+
+        // Demandée « public », appliquée « private » (ex. projet Google non audité) : réussite, écart tracé.
+        $attempt = PublicationAttempt::sole();
+        $this->assertSame('succeeded', $attempt->status->value);
+        $this->assertSame(VariantStatus::Published, $this->variant($post)->fresh()->status);
+        $this->assertNull($this->variant($post)->fresh()->last_error_code);
+        $this->assertSame(['public', 'private', true], [$attempt->response_excerpt['privacy_requested'], $attempt->response_excerpt['privacy_status'], $attempt->response_excerpt['privacy_mismatch']]);
+        $this->assertContains(['publishing.youtube_visibility_mismatch', ['post_variant_id' => $this->variant($post)->id, 'requested' => 'public', 'applied' => 'private']], $logged);
+
+        $res = $this->actingAs($this->user)->fromSpa()->getJson("/api/v1/content/posts/{$post->id}/attempts")->assertOk();
+        $res->assertJsonPath('data.0.warnings.0.code', 'VISIBILITY_MISMATCH');
+        $this->assertStringContainsString('« Privée » au lieu de « Publique »', $res->json('data.0.warnings.0.message'));
+        $this->assertArrayNotHasKey('response_excerpt', $res->json('data.0'));
+
+        // Visibilité absente de la réponse : non confirmée, signalée aussi.
+        $second = $this->createPost($targets);
+        $this->publishAndRun($second, 1);
+        $excerpt = PublicationAttempt::query()->where('post_variant_id', $this->variant($second)->id)->sole()->response_excerpt;
+        $this->assertSame([null, true], [$excerpt['privacy_status'], $excerpt['privacy_mismatch']]);
+        $this->assertStringContainsString('n\'a pas confirmé', $excerpt['warnings'][0]['message']);
+    }
+
+    public function test_a_scheduled_publication_sends_the_visibility_saved_last_before_execution(): void
+    {
+        Queue::fake();
+        $this->fakeYouTube();
+        $payload = fn (string $visibility) => [
+            'mode' => 'schedule', 'scheduled_at' => now()->addHour()->toIso8601String(), 'title' => 'Programmée', 'body' => 'Texte',
+            'media_ids' => [$this->video->id],
+            'targets' => [['social_account_id' => $this->account->id, 'format' => 'video', 'options' => ['youtubeVisibility' => $visibility, 'madeForKids' => false]]],
+        ];
+        $id = $this->actingAs($this->user)->fromSpa()->postJson('/api/v1/content/posts', $payload('private'))->assertCreated()->json('data.id');
+        // Modifiée avant l'échéance : c'est la dernière valeur enregistrée qui part.
+        $this->actingAs($this->user)->fromSpa()->putJson("/api/v1/content/posts/{$id}", $payload('unlisted'))->assertOk();
+
+        $this->travel(2)->hours();
+        SocialToken::query()->update(['expires_at' => now()->addHour()]); // jeton encore valide à l'échéance
+        $this->assertSame(1, app(PublishingService::class)->dispatchDue());
+        Queue::pushed(PublishPostVariantJob::class)->first()->handle(app(PublishingService::class));
+
+        Http::assertSent(fn (Request $r) => $r->method() === 'POST' && $r->data()['status'] === ['privacyStatus' => 'unlisted', 'selfDeclaredMadeForKids' => false]);
+        $this->assertSame('unlisted', PublicationAttempt::sole()->response_excerpt['privacy_status']);
+        $this->assertSame('schedule', PublicationAttempt::sole()->trigger->value);
+    }
+
+    public function test_attempts_recorded_before_the_visibility_report_expose_no_warning(): void
+    {
+        Queue::fake();
+        $this->fakeYouTube();
+        $post = $this->createPost();
+        $this->publishAndRun($post);
+        PublicationAttempt::query()->update(['response_excerpt' => ['upload_status' => 'uploaded', 'privacy_status' => 'private']]); // forme antérieure
+
+        $this->actingAs($this->user)->fromSpa()->getJson("/api/v1/content/posts/{$post->id}/attempts")->assertOk()->assertJsonPath('data.0.warnings', []);
     }
 }

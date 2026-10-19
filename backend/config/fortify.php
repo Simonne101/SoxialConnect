@@ -168,7 +168,12 @@ return [
         Features::emailVerification(),
         Features::updatePasswords(),
         // Profil : endpoint dédié PATCH /api/v1/users/me.
-        // Double authentification : colonnes prêtes, activation prévue en phase 11 (docs/security.md §3).
+        // Double authentification TOTP (étape 8, lot 5) : activation confirmée par un premier code, gestion protégée
+        // par la confirmation du mot de passe (routes redéclarées sous /api/v1/auth, routes/api.php).
+        Features::twoFactorAuthentication([
+            'confirm' => true,
+            'confirmPassword' => true,
+        ]),
     ],
 
 ];

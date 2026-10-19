@@ -17,6 +17,8 @@ enum AiTask: string
     case VideoAnalysis = 'video_analysis';
     case ClipDetection = 'clip_detection';
     case Transcription = 'transcription';
+    /** Génération d'images (ADR-046). */
+    case Image = 'image';
 
     /** @return list<string> */
     public static function values(): array

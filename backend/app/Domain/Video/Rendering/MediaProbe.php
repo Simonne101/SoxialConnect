@@ -18,7 +18,7 @@ class MediaProbe
     {
         try {
             $process = new Process([
-                $this->binaries->ffprobePath(), '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', $path,
+                $this->binaries->ffprobePath(), '-v', 'error', '-protocol_whitelist', 'file', '-print_format', 'json', '-show_format', '-show_streams', $path,
             ]);
             $process->setTimeout((int) config('video.probe_timeout_seconds', 30));
             $process->run();

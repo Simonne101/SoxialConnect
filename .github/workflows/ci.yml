@@ -1,0 +1,165 @@
+# Intégration continue de SoxialConnect (ADR-075). Toute étape obligatoire en échec fait échouer la CI :
+# tests, TypeScript, lint, build, audits de dépendances de production, secret détecté.
+name: CI
+
+on:
+  push:
+    branches: [main, "security/**", "feature/**", "fix/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Installer gitleaks (version figée, empreinte vérifiée)
+        env:
+          GITLEAKS_VERSION: "8.28.0"
+        run: |
+          set -eu
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLO "${base}/${archive}"
+          curl -fsSL "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" | grep " ${archive}\$" | sha256sum -c -
+          tar -xzf "${archive}" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+      - name: Analyser tout l'historique Git
+        run: gitleaks git --config .gitleaks.toml --redact --no-banner --exit-code 1 .
+      - name: Analyser l'arbre de travail (fichiers suivis)
+        run: gitleaks dir --config .gitleaks.toml --redact --no-banner --exit-code 1 .
+      - name: Modèles .env sans secret (valeur vide, null ou numérique uniquement)
+        run: |
+          set -eu
+          templates=".env.example backend/.env.example backend/.env.production.example frontend/.env.example deploy/docker/compose.env.example"
+          found=$(grep -HnE '^[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|_KEY)[A-Z0-9_]*=' $templates | grep -vE '=(null|[0-9]+)?[[:space:]]*$' || true)
+          if [ -n "$found" ]; then echo "Valeur non vide dans un modèle .env :"; echo "$found" | sed -E 's/=.*/=<masqué>/'; exit 1; fi
+
+  backend:
+    name: Backend (PHPUnit, audit Composer)
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.4.5
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root
+          MYSQL_DATABASE: sociopulse_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+      redis:
+        image: redis:7.4.3-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=6
+      clamav:
+        image: clamav/clamav:1.4.2
+        ports: ["3310:3310"]
+        options: >-
+          --health-cmd="clamdcheck.sh" --health-interval=30s --health-timeout=15s --health-retries=20
+          --health-start-period=300s
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_USERNAME: root
+      DB_PASSWORD: ci-root
+      REDIS_HOST: 127.0.0.1
+      # Test EICAR réel contre le vrai démon ClamAV (groupe « clamav »).
+      CLAMAV_TEST_HOST: 127.0.0.1
+      CLAMAV_TEST_PORT: "3310"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          # Mêmes extensions que l'image Docker (deploy/docker/php/install-extensions.sh).
+          extensions: gd, exif, intl, zip, pdo_mysql, mbstring, bcmath, pcntl, fileinfo, curl
+          coverage: none
+          tools: composer:v2
+      - name: Outils vidéo (FFmpeg/FFprobe pour les tests d'intégration réels)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Dépendances Composer
+        run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Audit des dépendances PHP
+        run: composer audit --no-interaction
+      - name: Configuration de test
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+      - name: Tests (hors Remotion et whisper, binaires absents de la CI)
+        run: php artisan test --exclude-group=remotion,whisper
+      - name: Tests de sécurité, de quotas et de configuration de production (rapport dédié)
+        run: php artisan test tests/Feature/Security tests/Feature/Auth tests/Unit/SecretRedactorTest.php
+
+  frontend:
+    name: Frontend (TypeScript, lint, build, tests, audit)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: TypeScript
+        run: npx tsc -b --pretty false
+      - name: Lint
+        run: npm run lint -- --max-warnings=1 # avertissement existant documenté (ComposerPage, watch())
+      - name: Build
+        run: npm run build
+      - name: Tests
+        run: npm test
+      - name: Audit des dépendances de production
+        run: npm audit --omit=dev
+
+  renderer:
+    name: Renderer (audit)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: renderer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Audit des dépendances de production
+        run: npm audit --omit=dev
+
+  docker:
+    name: Docker (validation de la composition)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose.yaml valide (valeurs factices, aucun secret)
+        run: |
+          cat > /tmp/compose.env <<'EOF'
+          SOXIAL_VERSION=ci
+          SERVER_NAME=ci.example.com
+          SOXIAL_ENV_FILE=/tmp/backend.env
+          TLS_CERT_DIR=/tmp/certs
+          MYSQL_PASSWORD=ci-factice
+          MYSQL_ROOT_PASSWORD=ci-factice
+          REDIS_PASSWORD=ci-factice
+          EOF
+          docker compose --env-file /tmp/compose.env -f deploy/docker/compose.yaml config -q
+      - name: Construction des images (sans publication)
+        run: |
+          docker build -f deploy/docker/backend.Dockerfile --target app -t soxialconnect/app:ci .
+          docker build -f deploy/docker/web.Dockerfile -t soxialconnect/web:ci .

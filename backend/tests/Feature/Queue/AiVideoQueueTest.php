@@ -55,7 +55,7 @@ class AiVideoQueueTest extends TestCase
         $launcher = (string) file_get_contents(base_path('../scripts/dev.mjs'));
 
         // Worker existant inchangé.
-        $this->assertStringContainsString("'queue:listen', 'redis', '--queue=publishing,default,media', '--sleep=1', '--timeout=300'", $launcher);
+        $this->assertStringContainsString("'queue:listen', 'redis', '--queue=publishing,default,media,analytics', '--sleep=1', '--timeout=300'", $launcher);
         // Workers optionnels : « ai » sur redis, « video » sur redis-video, timeouts sous les retry_after.
         $this->assertMatchesRegularExpression("/'queue:listen', 'redis', '--queue=ai', '--sleep=1', '--timeout=(\\d+)'/", $launcher);
         preg_match("/'queue:listen', 'redis-video', '--queue=video', '--sleep=3', '--timeout=(\\d+)'/", $launcher, $video);

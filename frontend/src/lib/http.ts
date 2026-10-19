@@ -69,13 +69,14 @@ function gatewayError(
 
 /**
  * Message affichable pour une erreur d'API : le premier message de validation (422), le message
- * métier du serveur (401, 403, 404, 409, 419, 429, réseau), sinon le message de repli.
+ * métier du serveur (401, 403, 404, 409, 413, 419, 429, 507, réseau), sinon le message de repli.
  */
 export function apiErrorMessage(error: unknown, fallback = "Une erreur est survenue. Réessayez."): string {
   if (!(error instanceof ApiError)) return fallback
   if (error instanceof GatewayError) return error.message
   if (error.status === 422) return Object.values(error.errors)[0]?.[0] ?? error.message
-  if (error.status >= 500) return fallback
+  // 507 : espace disque du serveur insuffisant (quotas, ADR-071) — message métier explicite, pas une panne.
+  if (error.status >= 500 && error.status !== 507) return fallback
   return error.message || fallback
 }
 

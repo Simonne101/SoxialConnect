@@ -34,6 +34,8 @@ class AiServiceTest extends TestCase
         config([
             'ai.default_provider' => 'openai',
             'ai.default_model' => null,
+            // Indépendant du .env local (modèles de tâches éventuellement configurés).
+            ...collect(array_keys(config('ai.tasks')))->mapWithKeys(fn ($task) => ["ai.tasks.{$task}.model" => null, "ai.tasks.{$task}.provider" => null])->all(),
             'ai.providers.openai.api_key' => self::KEY,
             'ai.providers.openai.base_url' => 'https://api.openai.com/v1',
         ]);
@@ -95,7 +97,12 @@ class AiServiceTest extends TestCase
         config(['ai.default_model' => 'modele-general', 'ai.tasks.ideas.model' => 'modele-general', 'ai.tasks.script.model' => 'modele-script']);
         $this->assertSame('modele-script', $service->modelFor(AiTask::Script));
         $this->assertSame('modele-general', $service->modelFor(AiTask::Ideas));
-        $this->assertSame('modele-general', $service->modelFor(AiTask::Transcription), 'Tâche sans réglage propre : modèle par défaut.');
+        $this->assertSame('modele-general', $service->modelFor(AiTask::ClipDetection), 'Tâche sans réglage propre : modèle par défaut.');
+        $this->assertNull($service->modelFor(AiTask::Transcription), 'Modèle spécialisé : jamais le modèle de texte par défaut.');
+        $this->assertNull($service->modelFor(AiTask::Image), 'Modèle spécialisé : jamais le modèle de texte par défaut.');
+        config(['ai.tasks.transcription.model' => 'modele-audio', 'ai.tasks.image.model' => 'modele-image']);
+        $this->assertSame('modele-audio', $service->modelFor(AiTask::Transcription));
+        $this->assertSame('modele-image', $service->modelFor(AiTask::Image));
     }
 
     public function test_check_command_without_a_key_sends_nothing_and_is_not_an_error(): void

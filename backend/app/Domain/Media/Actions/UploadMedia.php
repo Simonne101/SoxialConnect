@@ -8,8 +8,13 @@ use App\Domain\Media\Exceptions\MediaRejected;
 use App\Domain\Media\Exceptions\MediaScanUnavailable;
 use App\Domain\Media\Security\MediaSecurityScanner;
 use App\Domain\Media\Security\ScanPolicy;
+use App\Domain\Media\Security\ScanResult;
 use App\Domain\Media\Storage\MediaStorage;
+use App\Domain\Media\Upload\InspectedFile;
 use App\Domain\Media\Upload\MediaFileInspector;
+use App\Domain\Quota\DiskGuard;
+use App\Domain\Quota\DiskSpaceInsufficient;
+use App\Domain\Quota\StorageQuota;
 use App\Jobs\ProcessMediaJob;
 use App\Models\Media;
 use App\Models\User;
@@ -34,6 +39,8 @@ final class UploadMedia
         private readonly MediaStorage $storage,
         private readonly ProcessMedia $process,
         private readonly AuditLogger $audit,
+        private readonly StorageQuota $quota,
+        private readonly DiskGuard $disk,
     ) {}
 
     /** @param list<string> $tags tags déjà normalisés */
@@ -61,6 +68,27 @@ final class UploadMedia
             throw MediaRejected::scanFailed();
         }
 
+        // Quotas (ADR-071) : espace de l'utilisateur et disque du serveur réservés AVANT le stockage, sous verrou
+        // (deux imports simultanés ne dépassent pas la limite) ; libérés une fois le média enregistré (il est alors
+        // compté en base) ou en cas d'échec.
+        $quotaReservation = $this->quota->reserve($user, $inspected->sizeBytes, 'upload');
+        try {
+            $diskReservation = $this->disk->reserve($inspected->sizeBytes, 'upload', storage_path('app'));
+        } catch (DiskSpaceInsufficient $e) {
+            $this->quota->release($user, $quotaReservation);
+            throw $e;
+        }
+        try {
+            return $this->store($user, $inspected, $scan, $folderId, $tags);
+        } finally {
+            $this->quota->release($user, $quotaReservation);
+            $this->disk->release($diskReservation);
+        }
+    }
+
+    /** @param list<string> $tags */
+    private function store(User $user, InspectedFile $inspected, ScanResult $scan, ?string $folderId, array $tags): Media
+    {
         $media = new Media;
         $media->id = (string) Str::uuid7();
         $media->user_id = $user->getKey();

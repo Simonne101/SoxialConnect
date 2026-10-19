@@ -7,11 +7,12 @@ import {
   FollowersLineChart,
   PlatformBarChart,
 } from "@/components/analytics/charts"
+import { LiveAnalytics } from "@/components/analytics/LiveAnalytics"
 import { PlatformIcon } from "@/components/brand/PlatformIcon"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { SectionCard } from "@/components/shared/SectionCard"
 import { StatCard } from "@/components/shared/StatCard"
-import { CardsSkeleton, EmptyState, ErrorState } from "@/components/shared/States"
+import { CardsSkeleton, DemoNotice, EmptyState, ErrorState } from "@/components/shared/States"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -19,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAnalytics } from "@/hooks/queries/misc"
 import { useSocialAccounts } from "@/hooks/queries/social"
 import { formatChange, formatCompact, formatDate, formatInt, formatPercent } from "@/lib/format"
+import { isApiEnabled } from "@/lib/http"
 import { PLATFORMS } from "@/lib/platforms"
 import { cn } from "@/lib/utils"
 import type { AnalyticsData, AnalyticsPeriod } from "@/types"
@@ -66,6 +68,13 @@ function TopPostsTable({ data, limit }: { data: AnalyticsData; limit?: number })
 }
 
 export default function AnalyticsPage() {
+  // Mode API : statistiques réellement collectées (GET /analytics), jamais de jeu simulé (ADR-068).
+  return isApiEnabled ? <LiveAnalytics /> : <AnalyticsDemo />
+}
+
+
+/** Mode démonstration (sans API) : jeu simulé, signalé comme tel en tête de page. */
+function AnalyticsDemo() {
   const [period, setPeriod] = useState<AnalyticsPeriod>("7d")
   const { data, isLoading, isError, refetch, isFetching } = useAnalytics(period)
   const accounts = useSocialAccounts()
@@ -89,6 +98,8 @@ export default function AnalyticsPage() {
           </Select>
         }
       />
+
+      <DemoNotice className="mb-4">Mode démonstration : statistiques simulées. Chaque réseau fournit des métriques différentes : les valeurs indisponibles sont affichées « n/d ».</DemoNotice>
 
       {noAccount ? (
         <EmptyState icon={BarChart3} title="Aucune donnée Analytics" description="Connectez au moins un réseau social : vos statistiques apparaîtront ici après la première synchronisation." action={<Button asChild><Link to="/social-accounts">Connecter un réseau</Link></Button>} />
@@ -217,11 +228,6 @@ export default function AnalyticsPage() {
             </TabsContent>
           </Tabs>
         </div>
-      )}
-      {!isLoading && !noAccount && (
-        <p className="mt-6 text-xs text-ink-muted">
-          Données de démonstration. Chaque réseau fournit des métriques différentes : les valeurs indisponibles sont affichées « n/d ».
-        </p>
       )}
       {isLoading && <Skeleton className="mt-6 h-72 w-full rounded-2xl" />}
     </>

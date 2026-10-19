@@ -72,7 +72,7 @@ gantt
 
 ### Phase 5 — Publishing (L)
 - **Livré (moteur interne, 2026-09-30)** : `PublishingService`, `PublishPostVariantJob`, planificateur `publishing:dispatch-due`, historique des tentatives, relance, annulation, adaptateur par défaut `NotConfiguredPublisher` (aucun réseau appelé) — voir [publishing.md](publishing.md). Reste : les adaptateurs réels (après OAuth), la réconciliation des résultats inconnus, les notifications.
-- **Livré (YouTube, 2026-09-30)** : OAuth Google officiel (state, PKCE, tokens chiffrés, refresh), `YouTubePublisher` (videos.insert reprenable, vidéos privées), connexion et déconnexion dans « Réseaux sociaux » — [publishing.md §11](publishing.md). Premier test réel en attente des identifiants Google.
+- **Livré (YouTube, 2026-09-30)** : OAuth Google officiel (state, PKCE, tokens chiffrés, refresh), `YouTubePublisher` (videos.insert reprenable ; vidéos privées jusqu'au 2026-10-14, puis visibilité choisie dans le Composer — ADR-065), connexion et déconnexion dans « Réseaux sociaux » — [publishing.md §11](publishing.md). Premier test réel en attente des identifiants Google.
 - `publication_attempts`, `PublishVariantJob`, idempotence, statut `unknown` et réconciliation, erreurs normalisées.
 - Adaptateurs de publication Facebook et Instagram (containers + polling), puis les autres plateformes selon l'avancement des revues.
 - URLs signées pour les plateformes en mode pull.

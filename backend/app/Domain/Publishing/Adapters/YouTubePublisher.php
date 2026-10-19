@@ -15,6 +15,7 @@ use GuzzleHttp\Psr7\Utils;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -27,12 +28,20 @@ use RuntimeException;
  * - interruption PENDANT l'envoi du fichier (délai, coupure) : exception = résultat inconnu,
  *   jamais relancé automatiquement (la vidéo a pu être créée) ;
  * - le fichier est lu côté serveur depuis le stockage privé (aucune URL publique) ;
- * - vidéos toujours envoyées en « private » pendant cette phase.
+ * - visibilité (privacyStatus) = option « Visibilité » du Composer (youtubeVisibility), liste blanche stricte ;
+ *   absente ou invalide : « private », jamais de publication publique implicite (ADR-065) ;
+ * - visibilité renvoyée par YouTube comparée à la demande : un écart (ex. projet Google non audité, vidéo
+ *   limitée à « private ») est enregistré et signalé, sans transformer la réussite en échec.
  */
 final class YouTubePublisher implements SocialPublisher
 {
-    /** Phase 1.5 : jamais de publication publique automatique. */
-    public const PRIVACY_STATUS = 'private';
+    /** Valeurs acceptées par YouTube (status.privacyStatus) — identiques à l'option youtubeVisibility. */
+    public const VISIBILITIES = ['public', 'unlisted', 'private'];
+
+    /** Visibilité appliquée quand l'option est absente ou invalide : jamais de publication publique implicite. */
+    public const DEFAULT_VISIBILITY = 'private';
+
+    private const VISIBILITY_LABELS = ['public' => 'Publique', 'unlisted' => 'Non répertoriée', 'private' => 'Privée'];
 
     private const INSERT_URL = 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
 
@@ -141,10 +150,45 @@ final class YouTubePublisher implements SocialPublisher
             ]);
         }
 
-        return PublishResult::success($videoId, 'https://www.youtube.com/watch?v='.rawurlencode($videoId), [
-            'upload_status' => $uploadStatus,
-            'privacy_status' => $upload->json('status.privacyStatus'),
+        return PublishResult::success($videoId, 'https://www.youtube.com/watch?v='.rawurlencode($videoId),
+            $this->visibilityReport($request, $metadata['status']['privacyStatus'], $upload->json('status.privacyStatus'), $uploadStatus));
+    }
+
+    /**
+     * Visibilité demandée vs appliquée par YouTube. Un écart (ou une visibilité non confirmée) reste une
+     * réussite — la vidéo existe — mais il est tracé (publication_attempts.response_excerpt, journal) et
+     * exposé comme avertissement dans l'historique des envois.
+     *
+     * @return array<string, mixed>
+     */
+    private function visibilityReport(PublishRequest $request, string $requested, mixed $applied, mixed $uploadStatus): array
+    {
+        $applied = is_string($applied) && $applied !== '' ? $applied : null;
+        $report = ['upload_status' => $uploadStatus, 'privacy_requested' => $requested, 'privacy_status' => $applied, 'privacy_mismatch' => $applied !== $requested];
+        if ($applied === $requested) {
+            return $report;
+        }
+
+        $wanted = self::VISIBILITY_LABELS[$requested];
+        $report['warnings'] = [[
+            'type' => 'VISIBILITY_MISMATCH',
+            'message' => $applied === null
+                ? "Vidéo publiée, mais YouTube n'a pas confirmé sa visibilité (demandée : {$wanted}). Vérifiez-la dans YouTube Studio."
+                : 'Vidéo publiée avec la visibilité « '.(self::VISIBILITY_LABELS[$applied] ?? $applied)." » au lieu de « {$wanted} » demandée. YouTube peut limiter les vidéos envoyées par une application non auditée par Google : vérifiez-la dans YouTube Studio.",
+        ]];
+        Log::warning('publishing.youtube_visibility_mismatch', [
+            'post_variant_id' => $request->variantId, 'requested' => $requested, 'applied' => $applied,
         ]);
+
+        return $report;
+    }
+
+    /** Option youtubeVisibility validée par liste blanche stricte ; sinon « private ». */
+    public static function visibility(array $options): string
+    {
+        $value = $options['youtubeVisibility'] ?? null;
+
+        return is_string($value) && in_array($value, self::VISIBILITIES, true) ? $value : self::DEFAULT_VISIBILITY;
     }
 
     /** @param array<string, mixed> $metadata */
@@ -185,7 +229,7 @@ final class YouTubePublisher implements SocialPublisher
             'categoryId' => config('services.youtube.category_id') ?: null,
         ], fn ($v) => $v !== null && $v !== '');
 
-        $status = ['privacyStatus' => self::PRIVACY_STATUS];
+        $status = ['privacyStatus' => self::visibility($options)];
         if (isset($options['madeForKids'])) {
             $status['selfDeclaredMadeForKids'] = (bool) $options['madeForKids'];
         }

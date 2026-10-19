@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 
 /**
@@ -20,7 +21,7 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, HasUuids, Notifiable, SoftDeletes;
+    use HasApiTokens, HasFactory, HasUuids, Notifiable, SoftDeletes, TwoFactorAuthenticatable;
 
     /** Champs modifiables par l'utilisateur. Statut, e-mail vérifié et 2FA ne le sont jamais par assignation de masse. */
     protected $fillable = [

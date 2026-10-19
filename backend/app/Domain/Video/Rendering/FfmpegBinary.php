@@ -2,16 +2,12 @@
 
 namespace App\Domain\Video\Rendering;
 
-use Illuminate\Support\Facades\Cache;
-use Symfony\Component\Process\Process;
-use Throwable;
-
 /**
  * Binaires FFmpeg et FFprobe (config video.binaries : nom dans le PATH ou chemin absolu).
  * Détection : `<binaire> -version`, sans shell, délai video.binary_check_timeout_seconds (un premier
  * lancement peut prendre plusieurs secondes sous Windows : analyse antivirus). Aucune installation.
- * Binaire présent : mis en cache 5 minutes ; absent : 30 s seulement, pour qu'un échec passager
- * (démarrage lent) ou une installation récente ne bloque pas les rendus pendant 5 minutes.
+ * Règles de mémorisation et d'états : ExecutableCheck (succès partagé, échec jamais partagé, délai
+ * dépassé = non vérifié et non « absent »).
  * Non finale : les tests la remplacent pour simuler la présence ou l'absence des binaires.
  */
 class FfmpegBinary
@@ -38,25 +34,20 @@ class FfmpegBinary
         return $this->check($this->ffprobePath(), 'ffprobe version');
     }
 
+    /**
+     * Vérification partagée (ExecutableCheck) : un démarrage lent n'est jamais un « absent », et une requête web
+     * ne peut plus dépasser max_execution_time pendant ces contrôles.
+     */
     private function check(string $binary, string $signature): bool
     {
-        $key = 'video:binary-available:'.hash('sha256', $binary);
-        $cached = Cache::get($key);
-        if (is_bool($cached)) {
-            return $cached;
-        }
+        $result = app(ExecutableCheck::class)->check(
+            str_starts_with($signature, 'ffprobe') ? 'ffprobe' : 'ffmpeg',
+            $binary,
+            ['-hide_banner', '-version'],
+            fn (string $output) => str_starts_with($output, $signature) ? trim((string) strtok($output, "\n")) : null,
+            max(5, (int) config('video.binary_check_timeout_seconds', 20)),
+        );
 
-        try {
-            $process = new Process([$binary, '-hide_banner', '-version']);
-            $process->setTimeout((int) config('video.binary_check_timeout_seconds'));
-            $process->run();
-            $available = $process->isSuccessful() && str_starts_with($process->getOutput(), $signature);
-        } catch (Throwable) {
-            $available = false; // binaire introuvable (Windows : CreateProcess échoue), droits, délai.
-        }
-
-        Cache::put($key, $available, $available ? 300 : 30);
-
-        return $available;
+        return $result['state'] !== ExecutableCheck::UNAVAILABLE;
     }
 }

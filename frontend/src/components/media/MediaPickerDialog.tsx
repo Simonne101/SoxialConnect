@@ -21,10 +21,12 @@ import { MediaThumb } from "./MediaThumb"
 
 const PICKER_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
 const AUDIO_ACCEPT = "audio/mpeg,audio/mp4,audio/x-m4a,audio/wav"
+const VIDEO_ACCEPT = "video/mp4,video/quicktime,video/webm"
 
 /**
- * Sélection de médias depuis la médiathèque (ou import) : Composer (images, vidéos) et Video Studio
- * (allowAudio : sons et musiques en plus). Par défaut, comportement inchangé pour le Composer.
+ * Sélection de médias depuis la médiathèque (ou import) : Composer (images, vidéos), Video Studio
+ * (allowAudio : sons et musiques en plus) et YouTube Clipper (videoOnly : UNE vidéo source).
+ * Par défaut, comportement inchangé pour le Composer.
  */
 export function MediaPickerDialog({
   open,
@@ -32,14 +34,17 @@ export function MediaPickerDialog({
   initial,
   onConfirm,
   allowAudio = false,
+  videoOnly = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   initial: string[]
   onConfirm: (ids: string[]) => void
   allowAudio?: boolean
+  /** Une seule vidéo (source du YouTube Clipper). */
+  videoOnly?: boolean
 }) {
-  const [type, setType] = useState<"all" | "image" | "video" | "audio">("all")
+  const [type, setType] = useState<"all" | "image" | "video" | "audio">(videoOnly ? "video" : "all")
   const [search, setSearch] = useState("")
   const deferred = useDeferredValue(search)
   const [page, setPage] = useState(1)
@@ -48,37 +53,45 @@ export function MediaPickerDialog({
   const uploadFiles = useUploadFiles()
   // Images et vidéos seulement (publiables) ; « all » exclut audio et documents côté affichage.
   const { data, isLoading, isError, isFetching, refetch } = useMedia({ type, search: deferred, page, perPage: 20 })
-  const items = (data?.items ?? []).filter((m) => m.type === "image" || m.type === "video" || (allowAudio && m.type === "audio"))
+  const items = (data?.items ?? []).filter((m) =>
+    videoOnly ? m.type === "video" : m.type === "image" || m.type === "video" || (allowAudio && m.type === "audio"),
+  )
 
-  const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+  const toggle = (id: string) =>
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : videoOnly ? [id] : [...s, id]))
 
   const onFiles = async (files: FileList | null) => {
     if (!files?.length) return
     const uploaded = await uploadFiles(Array.from(files), null)
-    setSelected((s) => [...s, ...uploaded.filter((m) => m.usable).map((m) => m.id)])
+    const usable = uploaded.filter((m) => m.usable && (!videoOnly || m.type === "video")).map((m) => m.id)
+    setSelected((s) => (videoOnly ? (usable.length ? [usable[0]] : s) : [...s, ...usable]))
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-[760px]">
         <DialogHeader>
-          <DialogTitle>Ajouter des médias</DialogTitle>
-          <DialogDescription>Choisissez dans votre médiathèque ou importez depuis votre ordinateur.</DialogDescription>
+          <DialogTitle>{videoOnly ? "Choisir la vidéo source" : "Ajouter des médias"}</DialogTitle>
+          <DialogDescription>
+            {videoOnly ? "Choisissez la vidéo à découper dans votre médiathèque, ou importez-la depuis votre ordinateur." : "Choisissez dans votre médiathèque ou importez depuis votre ordinateur."}
+          </DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <FilterTabs
-            variant="pill"
-            label="Type de média"
-            value={type}
-            onChange={(v) => { setType(v); setPage(1) }}
-            items={[
-              { value: "all", label: "Tous" },
-              { value: "image", label: "Images" },
-              { value: "video", label: "Vidéos" },
-              ...(allowAudio ? [{ value: "audio" as const, label: "Sons" }] : []),
-            ]}
-          />
-          <input ref={fileRef} type="file" multiple accept={allowAudio ? `${PICKER_ACCEPT},${AUDIO_ACCEPT}` : PICKER_ACCEPT} className="sr-only" onChange={(e) => void onFiles(e.target.files)} tabIndex={-1} aria-hidden="true" />
+          {!videoOnly && (
+            <FilterTabs
+              variant="pill"
+              label="Type de média"
+              value={type}
+              onChange={(v) => { setType(v); setPage(1) }}
+              items={[
+                { value: "all", label: "Tous" },
+                { value: "image", label: "Images" },
+                { value: "video", label: "Vidéos" },
+                ...(allowAudio ? [{ value: "audio" as const, label: "Sons" }] : []),
+              ]}
+            />
+          )}
+          <input ref={fileRef} type="file" multiple={!videoOnly} accept={videoOnly ? VIDEO_ACCEPT : allowAudio ? `${PICKER_ACCEPT},${AUDIO_ACCEPT}` : PICKER_ACCEPT} className="sr-only" onChange={(e) => void onFiles(e.target.files)} tabIndex={-1} aria-hidden="true" />
           <Button variant="outline" onClick={() => fileRef.current?.click()}>
             <Upload /> Importer depuis l'ordinateur
           </Button>
@@ -94,7 +107,11 @@ export function MediaPickerDialog({
           ) : isError ? (
             <ErrorState onRetry={() => refetch()} />
           ) : items.length === 0 ? (
-            <EmptyState icon={ImagePlus} title="Aucun média" description="Importez une image ou une vidéo pour l'ajouter à votre publication." />
+            <EmptyState
+              icon={ImagePlus}
+              title={videoOnly ? "Aucune vidéo" : "Aucun média"}
+              description={videoOnly ? "Importez la vidéo à découper (par exemple téléchargée depuis YouTube Studio)." : "Importez une image ou une vidéo pour l'ajouter à votre publication."}
+            />
           ) : (
             <ul className="grid grid-cols-3 gap-2.5 sm:grid-cols-5">
               {items.map((m) => {
@@ -130,7 +147,9 @@ export function MediaPickerDialog({
           <p className="text-sm text-ink-muted">{selected.length} sélectionné{selected.length > 1 ? "s" : ""}</p>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-            <Button onClick={() => { onConfirm(selected); onOpenChange(false) }}>Ajouter{selected.length ? ` (${selected.length})` : ""}</Button>
+            <Button disabled={videoOnly && selected.length === 0} onClick={() => { onConfirm(selected); onOpenChange(false) }}>
+              {videoOnly ? "Choisir cette vidéo" : `Ajouter${selected.length ? ` (${selected.length})` : ""}`}
+            </Button>
           </div>
         </DialogFooter>
       </DialogContent>

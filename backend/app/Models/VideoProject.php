@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -51,6 +52,12 @@ class VideoProject extends Model
     public function sourceMedia(): BelongsTo
     {
         return $this->belongsTo(Media::class, 'source_media_id');
+    }
+
+    /** Source vidéo du Clipper (ADR-049) : référence YouTube, acquisition, fichier rendable. */
+    public function videoSource(): HasOne
+    {
+        return $this->hasOne(VideoSource::class);
     }
 
     public function transcripts(): HasMany

@@ -56,7 +56,8 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            // Rotation quotidienne par défaut (jamais un fichier unique sans limite).
+            'channels' => explode(',', (string) env('LOG_STACK', 'daily')),
             'ignore_exceptions' => false,
         ],
 
@@ -94,6 +95,18 @@ return [
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'max_files' => 3,
+            'tap' => [RedactSecretsProcessor::class],
+            'replace_placeholders' => true,
+        ],
+
+        // Suite de tests (phpunit.xml) : fichier séparé des journaux de l'application, rotation quotidienne
+        // courte, même expurgation des secrets.
+        'testing' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/testing.log'),
+            'level' => 'debug',
+            'max_files' => 3,
+            'tap' => [RedactSecretsProcessor::class],
             'replace_placeholders' => true,
         ],
 
@@ -103,6 +116,7 @@ return [
             'username' => env('LOG_SLACK_USERNAME', env('APP_NAME', 'Laravel')),
             'emoji' => env('LOG_SLACK_EMOJI', ':boom:'),
             'level' => env('LOG_LEVEL', 'critical'),
+            'tap' => [RedactSecretsProcessor::class],
             'replace_placeholders' => true,
         ],
 
@@ -115,6 +129,7 @@ return [
                 'port' => env('PAPERTRAIL_PORT'),
                 'connectionString' => 'tls://'.env('PAPERTRAIL_URL').':'.env('PAPERTRAIL_PORT'),
             ],
+            'tap' => [RedactSecretsProcessor::class],
             'processors' => [PsrLogMessageProcessor::class],
         ],
 
@@ -134,12 +149,14 @@ return [
             'driver' => 'syslog',
             'level' => env('LOG_LEVEL', 'debug'),
             'facility' => env('LOG_SYSLOG_FACILITY', LOG_USER),
+            'tap' => [RedactSecretsProcessor::class],
             'replace_placeholders' => true,
         ],
 
         'errorlog' => [
             'driver' => 'errorlog',
             'level' => env('LOG_LEVEL', 'debug'),
+            'tap' => [RedactSecretsProcessor::class],
             'replace_placeholders' => true,
         ],
 
@@ -148,8 +165,9 @@ return [
             'handler' => NullHandler::class,
         ],
 
+        // Secours de Laravel quand un canal ne peut pas être créé : fichier distinct, expurgé (RedactingLogManager).
         'emergency' => [
-            'path' => storage_path('logs/laravel.log'),
+            'path' => storage_path('logs/emergency.log'),
         ],
 
     ],

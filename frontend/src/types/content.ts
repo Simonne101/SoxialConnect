@@ -90,6 +90,8 @@ export interface PublicationAttempt {
   externalPostId: string | null
   startedAt: string | null
   finishedAt: string | null
+  /** Avertissements d'un envoi réussi (ex. VISIBILITY_MISMATCH : visibilité YouTube différente de la demande). */
+  warnings: { code: string; message: string }[]
 }
 
 export interface PostMetrics {
