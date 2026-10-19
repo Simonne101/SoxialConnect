@@ -696,7 +696,7 @@ Format : Decision / Context / Reason / Consequences / Status / Date.
   - `docker compose config`, avec des valeurs factices : 9 services ; variables obligatoires manquantes refusées ; seuls 80/443 publiés ; réseau `internal` sans accès Internet.
 - **Non validé** :
   - construction des images et démarrage des conteneurs : moteur Docker non démarré sur le poste (0,2 Go de RAM libre) ;
-  - existence des étiquettes d'images figées (php 8.3.21, composer 2.8.9, node 24.16.0, nginx 1.28.0, mysql 8.4.5, redis 7.4.3, clamav 1.4.2) : à confirmer à la première construction. La CI les construit (`app`, `web`).
+  - existence des étiquettes d'images figées (php 8.3.35, composer 2.10.3, node 24.22.0, nginx 1.28.2, mysql 8.4.11, redis 7.4.11, clamav 1.4.6) : présence vérifiée sur Docker Hub le 2026-10-19 (les étiquettes initiales étaient anciennes et `clamav 1.4.2` n'existait plus). La construction reste à faire (la CI construit `app` et `web`).
 - **Ressources** :
   - au repos : ≈ 5 à 6 Go ;
   - en pointe : ≈ 10 Go de limites cumulées (ClamAV ≈ 1,5 Go, Chrome de Remotion ≈ 2 Go par rendu) ;
@@ -715,3 +715,21 @@ Format : Decision / Context / Reason / Consequences / Status / Date.
   - correction non cassante (`npm audit fix`, sans `--force`) : `source-map-js` 1.2.1 → 1.2.2 et `shadcn` 4.21.0 → 4.22.1 (CLI de développement) ;
   - non corrigé : `braces` (toutes versions vulnérables) via la CLI `shadcn`, outil de génération jamais embarqué dans le bundle. Seul `--force` le supprimerait, en rétrogradant shadcn en 1.0.0.
 - **Status** : Accepted — 2026-10-18
+
+### ADR-076 — Rotation contrôlée de TOKEN_ENCRYPTION_KEY et revue de préproduction
+- **Context (2026-10-19)** : `TOKEN_ENCRYPTION_KEY` du développement a été exposée (ADR-070). La procédure de rotation reposait sur une commande de rechiffrement absente (lot 2 de l'audit). Les étiquettes d'images Docker n'avaient pas été vérifiées.
+- **Decision** :
+  - **Commande `security:reencrypt-tokens [--dry-run]`** :
+    - comptage par version et vérification que tout est déchiffrable, sans modification ;
+    - rechiffrement ligne par ligne sous le verrou `social-token-refresh:{compte}`, avec une garde optimiste sur la valeur stockée ;
+    - aucune valeur affichée ;
+    - code 1 si un jeton est illisible ou a été modifié pendant l'opération.
+  - **Procédure** : sauvegarde, compatibilité par `TOKEN_ENCRYPTION_PREVIOUS_KEYS`, rechiffrement, validation, retrait différé de l'ancienne clé, retour arrière. Elle est décrite dans `docs/secrets-remediation.md` et n'a pas été exécutée sur des données réelles.
+  - **Images Docker** : passage aux dernières versions correctives présentes sur Docker Hub : php 8.3.35, composer 2.10.3, node 24.22.0, nginx-unprivileged 1.28.2, mysql 8.4.11, redis 7.4.11. `clamav/clamav:1.4.2` n'existe plus et devient 1.4.6.
+  - **Documentation** : avertissement contre `docker compose down -v` et la suppression des volumes. Le renouvellement TLS par le volume `acme-challenge` reste à outiller.
+  - **Empreintes** : toutes les images de base et de service sont figées par `étiquette@sha256` ; liste dans `deploy/docker/image-digests.txt`. `scripts/check-image-digests.sh` signale une étiquette republiée ou une empreinte disparue ; il est exécuté en CI.
+  - **CI Docker** : construction des **trois** images (`app`, `worker`, `web`) ; vérification des extensions PHP, de FFmpeg, FFprobe, Node, yt-dlp, whisper et du renderer, de l'utilisateur non root ; `nginx -t` avec un certificat auto-signé jetable.
+  - **TLS** : service `certbot` v5.8.0 (renouvellement webroot toutes les 12 h, hook de permissions pour Nginx, uid 101). Nginx lit `LETSENCRYPT_DIR` en lecture seule et se recharge toutes les 6 h. Première émission manuelle (`docs/deployment-docker.md` §5). Aucune validation n'a été faite sur un vrai domaine.
+  - **Procédures** : migration et retour arrière (§11), webhook Telegram de production (§12), inventaire et stockage des secrets (§13).
+- **Tests** : `Security/TokenRotationTest` (4) : rotation complète, clé oubliée détectée sans aucune modification, ligne en cours de rafraîchissement laissée intacte puis reprise idempotente, retour arrière.
+- **Status** : Accepted — 2026-10-19

@@ -1,0 +1,13 @@
+# Empreintes (digest de l'index multi-architecture) des images de base, relevées sur Docker Hub le 2026-10-19.
+# Format : <image:étiquette> <digest>. Vérification : deploy/docker/scripts/check-image-digests.sh (Docker requis).
+# Mise à jour volontaire : nouvelle version corrective → nouveau digest ici ET dans les Dockerfiles, compose.yaml, ci.yml.
+php:8.3.35-fpm-bookworm sha256:f768bd9142444f6126a690697b028c23f30878c3b628a7c355dfce75e29cc045
+php:8.3.35-cli-bookworm sha256:c24b55afdf860c874b9ec6267ced132ff52de97d308ab08e6cf41e8596e509f7
+composer:2.10.3 sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f6bc4bac
+node:24.22.0-bookworm-slim sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
+debian:bookworm-slim sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+nginxinc/nginx-unprivileged:1.28.2-alpine sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8
+mysql:8.4.11 sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
+redis:7.4.11-alpine sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+clamav/clamav:1.4.6 sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
+certbot/certbot:v5.8.0 sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20

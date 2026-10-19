@@ -4,10 +4,12 @@
 # Laravel (PHP-FPM, service « app ») sur le MÊME domaine : pas de CORS, cookies de session « Secure » et SameSite=Lax.
 # Contexte de construction : racine du dépôt. Aucune variable secrète : tout ce qui commence par VITE_ est public.
 # =====================================================================================================================
-ARG NODE_VERSION=24.16.0
-ARG NGINX_VERSION=1.28.0
+ARG NODE_VERSION=24.22.0
+ARG NGINX_VERSION=1.28.2
+ARG NODE_DIGEST=sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
+ARG NGINX_DIGEST=sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8
 
-FROM node:${NODE_VERSION}-bookworm-slim AS build
+FROM node:${NODE_VERSION}-bookworm-slim@${NODE_DIGEST} AS build
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -17,7 +19,7 @@ ENV VITE_API_URL=same-origin \
     VITE_APP_NAME=SoxialConnect
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine AS web
+FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine@${NGINX_DIGEST} AS web
 COPY deploy/docker/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY deploy/docker/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY deploy/docker/nginx/laravel-fastcgi.conf /etc/nginx/snippets/laravel-fastcgi.conf

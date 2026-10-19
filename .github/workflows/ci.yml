@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       mysql:
-        image: mysql:8.4.5
+        image: mysql:8.4.11@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
         env:
           MYSQL_ROOT_PASSWORD: ci-root
           MYSQL_DATABASE: sociopulse_test
@@ -58,11 +58,11 @@ jobs:
           --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root --silent"
           --health-interval=10s --health-timeout=5s --health-retries=12
       redis:
-        image: redis:7.4.3-alpine
+        image: redis:7.4.11-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
         ports: ["6379:6379"]
         options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=6
       clamav:
-        image: clamav/clamav:1.4.2
+        image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
         ports: ["3310:3310"]
         options: >-
           --health-cmd="clamdcheck.sh" --health-interval=30s --health-timeout=15s --health-retries=20
@@ -143,7 +143,7 @@ jobs:
         run: npm audit --omit=dev
 
   docker:
-    name: Docker (validation de la composition)
+    name: Docker (composition, empreintes, construction et contenu des images)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -153,13 +153,32 @@ jobs:
           SOXIAL_VERSION=ci
           SERVER_NAME=ci.example.com
           SOXIAL_ENV_FILE=/tmp/backend.env
-          TLS_CERT_DIR=/tmp/certs
+          LETSENCRYPT_DIR=/tmp/letsencrypt
           MYSQL_PASSWORD=ci-factice
           MYSQL_ROOT_PASSWORD=ci-factice
           REDIS_PASSWORD=ci-factice
           EOF
           docker compose --env-file /tmp/compose.env -f deploy/docker/compose.yaml config -q
-      - name: Construction des images (sans publication)
+      - name: Empreintes des images de base (dérive des étiquettes, empreintes figées disponibles)
+        run: sh deploy/docker/scripts/check-image-digests.sh
+      - name: Construction des trois images (sans publication)
         run: |
           docker build -f deploy/docker/backend.Dockerfile --target app -t soxialconnect/app:ci .
+          docker build -f deploy/docker/backend.Dockerfile --target worker -t soxialconnect/worker:ci .
           docker build -f deploy/docker/web.Dockerfile -t soxialconnect/web:ci .
+      - name: Contenu des images (extensions PHP, binaires vidéo, utilisateur non root)
+        run: |
+          set -eu
+          docker run --rm --entrypoint php soxialconnect/app:ci -r 'foreach (["pdo_mysql","intl","zip","gd","exif","bcmath","pcntl","mbstring","openssl","curl","fileinfo","Zend OPcache"] as $e) { if (!extension_loaded($e)) { fwrite(STDERR, "extension absente : ".$e.PHP_EOL); exit(1); } } if (!defined("PASSWORD_ARGON2ID")) { exit(1); } echo "app : extensions OK".PHP_EOL;'
+          docker run --rm --entrypoint id soxialconnect/app:ci | grep -q 'uid=33(www-data)'
+          docker run --rm --entrypoint sh soxialconnect/worker:ci -c 'ffmpeg -hide_banner -version | head -1 && ffprobe -hide_banner -version | head -1 && node --version && yt-dlp --version && /opt/whisper/bin/whisper-cli --help >/dev/null 2>&1 && test -s /opt/whisper/models/ggml-base.bin && test -d /opt/renderer/node_modules/@remotion/renderer && id | grep -q "uid=33(www-data)" && echo "worker : binaires OK"'
+          docker run --rm --entrypoint nginx soxialconnect/web:ci -V 2>&1 | head -1
+      - name: Configuration Nginx valide (certificat auto-signé jetable)
+        run: |
+          set -eu
+          live=/tmp/letsencrypt/live/ci.example.com
+          mkdir -p "$live"
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 -subj "/CN=ci.example.com" -keyout "$live/privkey.pem" -out "$live/fullchain.pem" 2>/dev/null
+          chmod 644 "$live"/*.pem
+          # Le point d'entrée de l'image génère conf.d/default.conf depuis le modèle quand la commande est « nginx ».
+          docker run --rm -e SERVER_NAME=ci.example.com --add-host app:127.0.0.1 -v /tmp/letsencrypt:/etc/letsencrypt:ro soxialconnect/web:ci nginx -t

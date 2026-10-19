@@ -40,8 +40,10 @@ server {
     http2 on;
     server_name ${SERVER_NAME};
 
-    ssl_certificate /etc/nginx/certs/fullchain.pem;
-    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    # Certificats Let's Encrypt (répertoire /etc/letsencrypt du serveur, monté en lecture seule ; renouvelés par le
+    # service « certbot », pris en compte au rechargement périodique de Nginx).
+    ssl_certificate /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
     ssl_session_cache shared:SSL:10m;

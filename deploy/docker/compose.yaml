@@ -52,8 +52,10 @@ services:
     ports:
       - "80:8080"
       - "443:8443"
+    # Rechargement de Nginx toutes les 6 h : prise en compte des certificats renouvelés par « certbot » (sans redémarrage).
+    entrypoint: ["sh", "-c", "(while sleep 21600; do nginx -s reload; done) & exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
     volumes:
-      - ${TLS_CERT_DIR:?TLS_CERT_DIR requis}:/etc/nginx/certs:ro
+      - ${LETSENCRYPT_DIR:?LETSENCRYPT_DIR requis}:/etc/letsencrypt:ro
       - acme-challenge:/var/www/certbot:ro
     networks: [edge]
     depends_on:
@@ -64,6 +66,20 @@ services:
       - /etc/nginx/conf.d:size=1m,uid=101,gid=101
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    logging: *logging
+
+  # Renouvellement automatique du certificat (Let's Encrypt, webroot) : vérifie toutes les 12 h, renouvelle à
+  # 30 jours de l'échéance. Le hook rend les clés lisibles par le groupe de Nginx (uid/gid 101, non root).
+  # Première émission : étape manuelle (docs/deployment-docker.md §5). Aucun port publié ; sortie Internet seulement.
+  certbot:
+    image: certbot/certbot:v5.8.0@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20
+    restart: unless-stopped
+    entrypoint: ["sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet --deploy-hook 'chgrp -R 101 /etc/letsencrypt/live /etc/letsencrypt/archive && chmod -R g+rX /etc/letsencrypt/live /etc/letsencrypt/archive'; sleep 12h & wait $${!}; done"]
+    volumes:
+      - ${LETSENCRYPT_DIR:?LETSENCRYPT_DIR requis}:/etc/letsencrypt
+      - acme-challenge:/var/www/certbot
+    networks: [egress]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
   app:
@@ -144,7 +160,7 @@ services:
     stop_grace_period: 2m
 
   mysql:
-    image: mysql:8.4.5
+    image: mysql:8.4.11@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-sociopulse}
@@ -169,7 +185,7 @@ services:
 
   # Cache, verrous (quotas, jetons, publication, planificateur) et files : jamais d'éviction (noeviction), persistance AOF.
   redis:
-    image: redis:7.4.3-alpine
+    image: redis:7.4.11-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     restart: unless-stopped
     command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction"]
     environment:
@@ -191,7 +207,7 @@ services:
   # Antivirus : clamd (port 3310 sur le réseau interne seulement) + freshclam (mises à jour des signatures, d'où egress).
   # Base de signatures chargée en mémoire : ≈ 1,2 à 1,6 Go ; premier démarrage long (téléchargement des signatures).
   clamav:
-    image: clamav/clamav:1.4.2
+    image: clamav/clamav:1.4.6@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
     restart: unless-stopped
     volumes:
       - clamav-db:/var/lib/clamav
