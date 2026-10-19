@@ -6,6 +6,8 @@
 #
 # Bibliothèques d'exécution : conservées automatiquement d'après les dépendances réelles des extensions compilées
 # (méthode des images PHP officielles) — aucun nom de paquet propre à une version de Debian (bookworm, trixie…).
+# Sortie de dpkg-query : « paquet[:arch][, paquet2[:arch]]: /chemin » ; les lignes « diversion by … from/to: … »
+# (fréquentes sous trixie) ne désignent pas des paquets et sont ignorées (cause de l'échec CI du 2026-10-19).
 set -eu
 
 savedAptMark="$(apt-mark showmanual)"
@@ -21,7 +23,11 @@ find /usr/local -type f -executable -exec ldd '{}' ';' 2>/dev/null \
     | awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); print so }' \
     | sort -u \
     | xargs -r dpkg-query --search \
-    | cut -d: -f1 \
+    | grep -v '^diversion ' \
+    | sed 's#: /.*$##' \
+    | tr ',' '\n' \
+    | sed 's/^ *//; s/ *$//; s/:.*$//' \
+    | grep -v '^$' \
     | sort -u \
     | xargs -r apt-mark manual >/dev/null
 apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false
