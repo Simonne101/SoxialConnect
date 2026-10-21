@@ -14,6 +14,7 @@ const BADGE_BG: Record<PlatformKey, string> = {
   x: "bg-x",
   pinterest: "bg-pinterest",
   threads: "bg-threads",
+  telegram: "bg-telegram",
 }
 
 const GLYPH_COLOR: Record<PlatformKey, string> = {
@@ -25,6 +26,7 @@ const GLYPH_COLOR: Record<PlatformKey, string> = {
   x: "text-x",
   pinterest: "text-pinterest",
   threads: "text-threads",
+  telegram: "text-telegram",
 }
 
 export function BrandGlyph({ name, className }: { name: BrandIconKey; className?: string }) {

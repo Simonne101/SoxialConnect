@@ -1,11 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { AnalyticsPeriod, NotificationPreferences, UserProfile } from "@/types"
-import { ApiError } from "@/lib/http"
+import type { AnalyticsPeriod, LiveAnalyticsFilters, NotificationPreferences, UserProfile } from "@/types"
+import { ApiError, isApiEnabled } from "@/lib/http"
 import * as svc from "@/services/misc"
 import { qk } from "./keys"
 
+/** Statistiques simulées : mode démonstration uniquement (aucune API de statistiques en mode API, étape 7 P1). */
 export const useAnalytics = (period: AnalyticsPeriod) =>
-  useQuery({ queryKey: qk.analytics(period), queryFn: () => svc.getAnalytics(period), placeholderData: (prev) => prev })
+  useQuery({ queryKey: qk.analytics(period), queryFn: () => svc.getAnalytics(period), placeholderData: (prev) => prev, enabled: !isApiEnabled })
+
+/** Statistiques réelles (mode API uniquement) : jamais de jeu simulé. */
+export const useLiveAnalytics = (filters: LiveAnalyticsFilters) =>
+  useQuery({ queryKey: qk.liveAnalytics(filters), queryFn: () => svc.getLiveAnalytics(filters), placeholderData: (prev) => prev, enabled: isApiEnabled })
 
 export const useDashboardSummary = (range: svc.DashboardRange = "today") =>
   useQuery({ queryKey: qk.dashboardRange(range), queryFn: () => svc.getDashboardSummary(range), placeholderData: (prev) => prev })

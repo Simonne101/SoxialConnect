@@ -1,6 +1,9 @@
 <?php
 
+use App\Http\Controllers\OAuth\DataPortabilityCallbackController;
+use App\Http\Controllers\OAuth\LinkedInCallbackController;
 use App\Http\Controllers\OAuth\TikTokCallbackController;
+use App\Http\Controllers\OAuth\XCallbackController;
 use App\Http\Controllers\OAuth\YouTubeCallbackController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Http\Controllers\VerifyEmailController;
@@ -25,3 +28,22 @@ Route::get('/oauth/youtube/callback', YouTubeCallbackController::class)
 Route::get('/oauth/tiktok/callback', TikTokCallbackController::class)
     ->middleware('throttle:20,1')
     ->name('oauth.tiktok.callback');
+
+// Retour OAuth de LinkedIn (authorization code) : même principe. Redirect URI HTTPS EXACTE
+// déclarée dans le LinkedIn Developer Portal (LINKEDIN_REDIRECT_URI) ; en local, via le tunnel
+// HTTPS puis le relais Vite (/oauth).
+Route::get('/oauth/linkedin/callback', LinkedInCallbackController::class)
+    ->middleware('throttle:20,1')
+    ->name('oauth.linkedin.callback');
+
+// Retour OAuth de X (authorization code + PKCE) : même principe. Redirect URI EXACTE déclarée
+// dans la console développeur X (X_REDIRECT_URI) ; en local, via le tunnel HTTPS puis le relais Vite (/oauth).
+Route::get('/oauth/x/callback', XCallbackController::class)
+    ->middleware('throttle:20,1')
+    ->name('oauth.x.callback');
+
+// Retour OAuth de Google pour l'export officiel Data Portability (ADR-054) : même principe. Redirect URI
+// déclarée chez Google (DATA_PORTABILITY_REDIRECT_URI) ; en local, relayée par Vite (/oauth).
+Route::get('/oauth/data-portability/callback', DataPortabilityCallbackController::class)
+    ->middleware('throttle:20,1')
+    ->name('oauth.data-portability.callback');

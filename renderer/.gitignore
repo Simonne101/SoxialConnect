@@ -1,0 +1,5 @@
+# Paquet Remotion du Clipper : dépendances, bundle et fichiers temporaires générés.
+node_modules/
+.bundle/
+.tmp/
+out/

@@ -46,12 +46,21 @@ return [
         'max_length' => 40,
     ],
 
-    // Analyse antivirus. Aucun moteur n'est installé en local (ClamAV : phase ultérieure).
-    // required = true : sans moteur disponible, les imports sont refusés (échec fermé).
-    // required = false (développement) : les fichiers sont acceptés mais restent « non analysés ».
+    // Analyse antivirus (étape 8, lot 6). driver : « clamav » (démon clamd, protocole INSTREAM) ou « none ».
+    // required = true : sans moteur joignable, les imports sont refusés (échec fermé).
+    // required = false (développement sans ClamAV) : les fichiers sont acceptés mais restent « non analysés ».
+    // clamd doit accepter les plus gros fichiers (StreamMaxLength, MaxFileSize, MaxScanSize ≥ MEDIA_MAX_VIDEO_MB),
+    // sinon il refuse le flux et l'import échoue (jamais considéré comme sain).
     'scan' => [
         'driver' => env('MEDIA_SCAN_DRIVER', 'none'),
         'required' => (bool) env('MEDIA_SCAN_REQUIRED', env('APP_ENV') === 'production'),
+        'clamav' => [
+            'socket' => env('CLAMAV_SOCKET'),
+            'host' => env('CLAMAV_HOST', '127.0.0.1'),
+            'port' => (int) env('CLAMAV_PORT', 3310),
+            'connect_timeout' => (float) env('CLAMAV_CONNECT_TIMEOUT', 2),
+            'scan_timeout' => (float) env('CLAMAV_SCAN_TIMEOUT', 300),
+        ],
     ],
 
     // Traitement (réencodage, vignettes) : synchrone tant qu'aucun worker de la queue « media »

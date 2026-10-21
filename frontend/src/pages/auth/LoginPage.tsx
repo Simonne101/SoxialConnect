@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { LoaderCircle } from "lucide-react"
-import { useForm } from "react-hook-form"
+import { useState } from "react"
+import { useForm, useWatch } from "react-hook-form"
 import { Link, useLocation, useNavigate } from "react-router"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -12,8 +13,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useLogin } from "@/hooks/queries/auth"
+import { useLogin, useTwoFactorChallenge } from "@/hooks/queries/auth"
 import { ApiError } from "@/lib/http"
+import { TwoFactorRequired } from "@/services/auth"
 
 const schema = z.object({
   email: z.email("Saisissez une adresse e-mail valide."),
@@ -26,23 +28,34 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const login = useLogin()
+  // Compte protégé par la double authentification : le mot de passe est accepté, le code est demandé ensuite.
+  const [challenge, setChallenge] = useState(false)
   const {
     register,
     handleSubmit,
     setValue,
     setError,
-    watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { email: "", password: "", remember: true } })
+  const remember = useWatch({ control, name: "remember" })
 
   // Connexion réelle (Laravel Fortify + session Sanctum) si le backend est branché, sinon démonstration.
+  const welcome = () => {
+    toast.success("Bon retour parmi nous !")
+    const from = (location.state as { from?: string } | null)?.from
+    navigate(from && from.startsWith("/") ? from : "/dashboard", { replace: true })
+  }
+
   const onSubmit = async (values: Values) => {
     try {
       await login.mutateAsync(values)
-      toast.success("Bon retour parmi nous !")
-      const from = (location.state as { from?: string } | null)?.from
-      navigate(from && from.startsWith("/") ? from : "/dashboard", { replace: true })
+      welcome()
     } catch (e) {
+      if (e instanceof TwoFactorRequired) {
+        setChallenge(true)
+        return
+      }
       if (e instanceof ApiError && e.status === 422) {
         setError("email", { message: e.field("email") ?? e.message })
         if (e.field("password")) setError("password", { message: e.field("password") })
@@ -51,6 +64,8 @@ export default function LoginPage() {
       }
     }
   }
+
+  if (challenge) return <TwoFactorStep onDone={welcome} onCancel={() => setChallenge(false)} />
 
   return (
     <AuthCard
@@ -78,7 +93,7 @@ export default function LoginPage() {
         </Field>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Checkbox id="remember" checked={watch("remember")} onCheckedChange={(v) => setValue("remember", v === true)} />
+            <Checkbox id="remember" checked={remember} onCheckedChange={(v) => setValue("remember", v === true)} />
             <Label htmlFor="remember" className="text-sm font-normal text-ink-soft">
               Se souvenir de moi
             </Label>
@@ -121,6 +136,79 @@ export default function LoginPage() {
           </Tooltip>
         ))}
       </div>
+    </AuthCard>
+  )
+}
+
+const codeSchema = z.object({ code: z.string().trim().min(1, "Saisissez le code.") })
+
+/** Second facteur : code à 6 chiffres de l'application, ou un code de secours (usage unique). */
+function TwoFactorStep({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const challenge = useTwoFactorChallenge()
+  const [recovery, setRecovery] = useState(false)
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<z.infer<typeof codeSchema>>({ resolver: zodResolver(codeSchema), defaultValues: { code: "" } })
+
+  const onSubmit = async ({ code }: z.infer<typeof codeSchema>) => {
+    try {
+      await challenge.mutateAsync(recovery ? { recoveryCode: code } : { code: code.replace(/\s/g, "") })
+      onDone()
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422) setError("code", { message: "Code invalide ou déjà utilisé." })
+      else if (e instanceof ApiError && e.status === 429) setError("root", { message: "Trop de tentatives. Patientez une minute." })
+      else setError("root", { message: e instanceof ApiError ? e.message : "La vérification a échoué. Réessayez." })
+    }
+  }
+
+  return (
+    <AuthCard
+      title="Double authentification"
+      subtitle={recovery ? "Saisissez l'un de vos codes de secours." : "Saisissez le code à 6 chiffres affiché par votre application d'authentification."}
+      footer={
+        <button type="button" className="font-semibold text-brand-600 hover:underline" onClick={onCancel}>
+          Revenir à la connexion
+        </button>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+        <Field label={recovery ? "Code de secours" : "Code de vérification"} error={errors.code?.message}>
+          {({ id, describedBy, invalid }) => (
+            <Input
+              id={id}
+              autoFocus
+              autoComplete="one-time-code"
+              inputMode={recovery ? "text" : "numeric"}
+              aria-describedby={describedBy}
+              aria-invalid={invalid}
+              {...register("code")}
+            />
+          )}
+        </Field>
+        {errors.root && (
+          <p role="alert" className="rounded-lg bg-danger-50 px-3 py-2 text-sm font-medium text-danger-700">
+            {errors.root.message}
+          </p>
+        )}
+        <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
+          {isSubmitting && <LoaderCircle className="animate-spin" />}
+          {isSubmitting ? "Vérification…" : "Vérifier"}
+        </Button>
+        <button
+          type="button"
+          className="w-full text-sm font-semibold text-brand-600 hover:underline"
+          onClick={() => {
+            setRecovery((r) => !r)
+            reset()
+          }}
+        >
+          {recovery ? "Utiliser le code de l'application" : "Utiliser un code de secours"}
+        </button>
+      </form>
     </AuthCard>
   )
 }

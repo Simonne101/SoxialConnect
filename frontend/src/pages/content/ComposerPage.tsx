@@ -1,5 +1,5 @@
 import { AlertCircle, CalendarClock, ChevronDown, ImagePlus, LoaderCircle, Send, Sparkles, Wand2, X } from "lucide-react"
-import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { Link, useBlocker, useLocation, useNavigate, useParams } from "react-router"
 import { toast } from "sonner"
@@ -10,13 +10,20 @@ import {
   EMPTY_VALUES,
   type Issue,
   type VariantDraft,
+  accountChoices,
   defaultVariant,
+  connectedAccounts,
+  divergentPlatforms,
   fromPost,
+  selectedAccounts,
+  telegramTextLimit,
   toDraftInput,
   validateComposer,
   variantText,
 } from "@/components/content/composer/model"
 import { NetworkPicker } from "@/components/content/composer/NetworkPicker"
+import { PublishRecapDialog } from "@/components/content/composer/PublishRecapDialog"
+import { publicationRecap, recapMedia } from "@/components/content/composer/recap"
 import { VariantEditor } from "@/components/content/composer/VariantEditor"
 import { VariantPreview } from "@/components/content/composer/VariantPreview"
 import { ScheduleDialog } from "@/components/content/ScheduleDialog"
@@ -86,12 +93,19 @@ export default function ComposerPage() {
   const [scheduleOpen, setScheduleOpen] = useState(Boolean(prefill.scheduledAt))
   const [submitted, setSubmitted] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
+  // Récapitulatif obligatoire avant publication ou programmation (rien n'est enregistré avant confirmation).
+  const [recap, setRecap] = useState<{ mode: "publish" | "schedule"; scheduledAt: string | null } | null>(null)
+  // Garde synchrone : un double clic ne crée jamais deux publications (isPending arrive au rendu suivant).
+  const sending = useRef(false)
 
   // Chargement d'une publication existante (mode édition).
   useEffect(() => {
     if (existing.data) {
       reset(fromPost(existing.data))
       setActiveTab(existing.data.variants[0]?.platform)
+      // Destinations d'un même réseau au contenu différent (créées hors du Composer) : jamais fusionnées en silence.
+      const divergent = divergentPlatforms(existing.data)
+      setIssues(divergent.map((p) => ({ platform: p, level: "warning", message: `${PLATFORMS[p].name} : les comptes de ce réseau n'ont pas le même contenu dans cette publication. À l'enregistrement, le contenu affiché ici s'appliquera à tous ces comptes.` })))
     }
   }, [existing.data, reset])
 
@@ -100,14 +114,17 @@ export default function ComposerPage() {
 
   const media = useMemo(() => values.mediaIds.map((id) => mediaMap[id]).filter(Boolean), [values.mediaIds, mediaMap])
   const tab = activeTab && values.platforms.includes(activeTab) ? activeTab : values.platforms[0]
-  const limit = values.platforms.length ? Math.min(...values.platforms.map((p) => PLATFORMS[p].maxChars)) : null
-  const limitPlatform = values.platforms.find((p) => PLATFORMS[p].maxChars === limit)
+  // Telegram : 4096 caractères, 1024 en légende d'un média.
+  const maxChars = (p: PlatformKey) => (p === "telegram" ? telegramTextLimit(values.mediaIds.length) : PLATFORMS[p].maxChars)
+  const limit = values.platforms.length ? Math.min(...values.platforms.map(maxChars)) : null
+  const limitPlatform = values.platforms.find((p) => maxChars(p) === limit)
 
   const togglePlatform = (p: PlatformKey) => {
     const selected = values.platforms.includes(p)
     const next = selected ? values.platforms.filter((x) => x !== p) : [...values.platforms, p]
     setValue("platforms", next, { shouldDirty: true })
-    if (!selected && !values.variants[p]) setValue(`variants.${p}`, defaultVariant(p), { shouldDirty: true })
+    // Destination proposée dès la sélection du réseau : le premier compte connecté ; les autres comptes se cochent ensuite.
+    if (!selected && !values.variants[p]) setValue(`variants.${p}`, { ...defaultVariant(p), accountIds: connectedAccounts(accounts, p).slice(0, 1).map((a) => a.id) }, { shouldDirty: true })
     if (!selected) setActiveTab(p)
     setIssues([])
   }
@@ -138,8 +155,9 @@ export default function ComposerPage() {
     }, 900)
   }
 
-  const submit = (mode: Mode, scheduledAt: string | null = null) => {
+  const submit = (mode: Mode, scheduledAt: string | null = null, confirmed = false) => {
     if (mode === "publish" && !features.publishing) return
+    if (sending.current) return
     const found = validateComposer(values, accounts, mediaMap, mode)
     setIssues(found)
     const blocking = found.filter((i) => i.level === "error")
@@ -153,25 +171,35 @@ export default function ComposerPage() {
       setScheduleOpen(true)
       return
     }
+    if (mode !== "draft" && !confirmed) {
+      setScheduleOpen(false)
+      setRecap({ mode, scheduledAt })
+      return
+    }
+    sending.current = true
     setSubmitted(true)
     save.mutate(
       { input: toDraftInput(values, accounts, scheduledAt), mode, id: postId, lockVersion: existing.data?.lockVersion },
       {
-        onSuccess: () => {
+        onSuccess: (saved) => {
           setScheduleOpen(false)
+          setRecap(null)
+          // Suivi immédiat : le détail de la publication (état de chaque réseau) s'ouvre à l'arrivée.
           if (mode === "publish") {
-            toast.success("Publication en file d'attente. Le résultat de l'envoi s'affichera dans vos publications.")
-            navigate("/content")
+            toast.success("Publication en file d'attente. Suivez l'envoi sur chaque réseau ci-dessous.")
+            navigate("/content", { state: { openPost: saved } })
           } else if (mode === "schedule") {
             toast.success("Publication programmée.")
-            navigate("/content/calendar")
+            navigate("/content/calendar", { state: { openPost: saved } })
           } else {
             toast.success("Brouillon enregistré.")
             navigate("/content/drafts")
           }
         },
         onError: (error) => {
+          sending.current = false
           setSubmitted(false)
+          setRecap(null)
           if (error instanceof ApiError && error.status === 422) {
             // Erreurs de validation du serveur : affichées dans l'encadré « Avant de continuer ».
             const messages = [...new Set(Object.values(error.errors).flat())]
@@ -356,13 +384,17 @@ export default function ComposerPage() {
                   <TabsTrigger key={p} value={p} className="gap-2">
                     <PlatformIcon platform={p} size="xs" />
                     {PLATFORMS[p].name}
+                    {(values.variants[p]?.accountIds.length ?? 0) > 1 && <span className="rounded-full bg-brand-50 px-1.5 text-[11px] font-semibold text-brand-600" aria-label={`${values.variants[p]?.accountIds.length} comptes`}>×{values.variants[p]?.accountIds.length}</span>}
                     {issuesFor(p).some((i) => i.level === "error") && <span className="size-2 rounded-full bg-danger-500" aria-label="à corriger" />}
                   </TabsTrigger>
                 ))}
               </TabsList>
               {values.platforms.map((p) => {
                 const variant = values.variants[p] ?? defaultVariant(p)
-                const account = accounts.find((a) => a.platform === p)
+                // Comptes proposés : les comptes connectés du réseau, plus ceux déjà choisis qui ne le sont
+                // plus (affichés avec leur état, jamais remplacés par un autre).
+                const selected = selectedAccounts(accounts, p, variant.accountIds).found
+                const first = selected[0]
                 return (
                   <TabsContent key={p} value={p} className="pt-5">
                     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -370,14 +402,15 @@ export default function ComposerPage() {
                         platform={p}
                         variant={variant}
                         mainBody={values.body}
-                        account={account}
+                        selected={selected}
+                        accountChoices={accountChoices(accounts, p, variant.accountIds)}
                         media={media}
                         hashtagSuggestions={suggestHashtags(p)}
                         onChange={(patch) => updateVariant(p, patch)}
                       />
                       <div className="lg:sticky lg:top-6 lg:self-start">
                         <p className="mb-2 text-xs font-semibold text-ink-muted">Aperçu {PLATFORMS[p].name}</p>
-                        <VariantPreview platform={p} text={variantText(values, p)} variant={variant} media={media} accountName={account?.entities[0]?.name ?? account?.displayName ?? "Votre compte"} />
+                        <VariantPreview platform={p} text={variantText(values, p)} variant={variant} media={media} accountName={`${first?.entities[0]?.name ?? first?.displayName ?? "Votre compte"}${selected.length > 1 ? ` (+${selected.length - 1})` : ""}`} />
                       </div>
                     </div>
                   </TabsContent>
@@ -422,8 +455,9 @@ export default function ComposerPage() {
             <span className="hidden md:inline">Enregistrer comme brouillon</span>
           </Button>
           <div className="flex md:flex-none">
-            <Button type="button" className="flex-1 rounded-r-none md:flex-none" disabled={pending} onClick={() => submit("schedule")}>
-              <CalendarClock /> Programmer
+            {/* Très petits écrans (< 375 px) : icône masquée pour que le bouton tienne dans sa colonne. */}
+            <Button type="button" className="min-w-0 flex-1 rounded-r-none max-[374px]:px-2 md:flex-none" disabled={pending} onClick={() => submit("schedule")}>
+              <CalendarClock className="max-[374px]:hidden" /> Programmer
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -457,6 +491,22 @@ export default function ComposerPage() {
 
       {pickerOpen && features.media && (
         <MediaPickerDialog open onOpenChange={setPickerOpen} initial={values.mediaIds} onConfirm={(ids) => setValue("mediaIds", ids, { shouldDirty: true })} />
+      )}
+      {recap && (
+        <PublishRecapDialog
+          open
+          mode={recap.mode}
+          scheduledAt={recap.scheduledAt}
+          lines={publicationRecap({
+            destinations: values.platforms.flatMap((p) => selectedAccounts(accounts, p, values.variants[p]?.accountIds ?? []).found.map((account) => ({ platform: p, account }))),
+            options: (p) => (values.variants[p] ?? defaultVariant(p)).options,
+            text: (p) => variantText(values, p),
+          })}
+          media={recapMedia(values.mediaIds, mediaMap)}
+          pending={pending}
+          onOpenChange={(o) => !o && setRecap(null)}
+          onConfirm={() => submit(recap.mode, recap.scheduledAt, true)}
+        />
       )}
       {scheduleOpen && (
         <ScheduleDialog

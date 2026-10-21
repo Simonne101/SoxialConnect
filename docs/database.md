@@ -135,7 +135,7 @@ Contraintes : **unique** (`user_id`, `social_platform_id`, `external_account_id`
 |---|---|---|
 | id | uuid | PK |
 | social_account_id | uuid | FK `social_accounts` ON DELETE CASCADE |
-| token_kind | varchar(16) | `user` \| `page` \| `app` |
+| token_kind | varchar(16) | `user` \| `page` \| `app` \| `portability` (autorisation Google Data Portability du compte YouTube, ADR-054 ; migration `2026_10_11_155113`) |
 | access_token_encrypted | text | chiffré (AES-256-GCM, clé dédiée, voir security.md §5) |
 | refresh_token_encrypted | text | null, chiffré |
 | expires_at | datetime | null (certains tokens n'expirent pas) |
@@ -259,7 +259,7 @@ Contrainte : **unique** (`post_id`, `post_variant_key`, `media_id`) — **[MySQL
 | http_status | smallint | null |
 | error_code, error_message | varchar | null, **expurgés** (jamais d'en-tête Authorization ni de token) |
 | external_post_id | varchar(191) | null, identifiant renvoyé par le réseau en cas de succès |
-| response_excerpt | json | null, extrait expurgé (IDs, codes d'erreur) |
+| response_excerpt | json | null, extrait expurgé (IDs, codes d'erreur ; YouTube : `privacy_requested`, `privacy_status`, `privacy_mismatch`, `warnings` [{type, message}] — ADR-065) |
 | started_at, finished_at | datetime | |
 Contrainte : **unique** (`post_variant_id`, `attempt_number`). Index : (`status`, `started_at`), (`post_variant_id`, `status`). Une ligne par envoi, jamais modifiée après sa conclusion : une relance crée une nouvelle ligne (docs/publishing.md).
 
@@ -314,7 +314,7 @@ Règle : un média `status = deleted` ou `scan_status != clean` n'est **jamais**
 | user_id | uuid | FK ON DELETE CASCADE |
 | post_id | uuid | null, FK ON DELETE SET NULL |
 | video_project_id | uuid | null, FK ON DELETE SET NULL |
-| task | varchar(32) | `post` \| `caption` \| `ideas` \| `hashtags` \| `rephrase` \| `script` \| `tone` \| `video_analysis` \| `clip_detection` \| `transcription` |
+| task | varchar(32) | `post` \| `caption` \| `ideas` \| `hashtags` \| `rephrase` \| `adapt` \| `script` \| `tone` \| `video_analysis` \| `clip_detection` \| `transcription` \| `image` (ADR-046) |
 | provider | varchar(32) | |
 | model | varchar(64) | |
 | prompt_version | varchar(32) | |
@@ -323,27 +323,43 @@ Règle : un média `status = deleted` ou `scan_status != clean` n'est **jamais**
 | output | json | null |
 | input_tokens, output_tokens | integer | null |
 | latency_ms | integer | null |
+| cost_estimate_micros | bigint | null — coût estimé en millionièmes de la devise (`config/ai.php`, `pricing`) ; NULL si le prix est inconnu, jamais 0 inventé |
+| input_hash | char(64) | null — SHA-256 (tâche, version de prompt, entrée normalisée, modèle) pour le cache |
 | error | varchar(1000) | null |
 | created_at, updated_at | timestamp | |
-Index : (`user_id`, `created_at`), (`user_id`, `task`). Les clés étrangères sont explicites (pas de polymorphisme) pour respecter le principe « toutes les relations protégées par FK ».
+Index : (`user_id`, `created_at`), (`user_id`, `task`), (`user_id`, `task`, `input_hash`). Les clés étrangères sont explicites (pas de polymorphisme) pour respecter le principe « toutes les relations protégées par FK ».
 
-### 3.6 CLIPPING
+### 3.6 VIDÉO (composition et clipping)
+
+Deux types de projets (ADR-042) : **composition** (Video Studio : scènes + pistes audio → rendu MP4) et
+**clipping** (découpage d'une vidéo longue). Préparation uniquement : aucun service, route ni rendu n'existe encore.
 
 #### `video_projects`
 | Colonne | Type | Notes |
 |---|---|---|
-| id | uuid | PK |
+| id | uuid | PK ; unique (`id`, `user_id`), cible de la FK composite de `video_render_jobs` |
 | user_id | uuid | FK ON DELETE CASCADE |
-| source_type | varchar(16) | `upload` \| `url` |
+| kind | varchar(16) | `composition` (défaut) \| `clipping` |
+| aspect_ratio | varchar(8) | `9:16` (défaut) \| `1:1` \| `16:9` |
+| description | text | null |
+| width, height | smallint | résolution de sortie fixée par le format (`config/video.php`) ; null pour un clipping |
+| fps | tinyint | 24 \| 25 \| 30 (CHECK 1 à 60) ; null pour un clipping |
+| target_duration_ms | integer | null, > 0 |
+| settings | json | null — police, couleur, position du texte, style des sous-titres |
+| lock_version | integer | 0 par défaut, concurrence optimiste |
+| ai_generation_id | uuid | null, FK `ai_generations` ON DELETE SET NULL (script dont le projet est issu) |
+| last_render_id | uuid | null, FK `video_render_jobs` ON DELETE SET NULL |
+| source_type | varchar(16) | null pour une composition ; `upload` \| `url`, obligatoire pour un clipping (CHECK) |
 | source_media_id | uuid | null, FK `media` ON DELETE RESTRICT |
 | source_url | varchar(2048) | null — soumis à la politique d'import (ADR-013, protection SSRF) |
 | title | varchar(255) | |
-| status | varchar(32) | `pending` \| `importing` \| `analyzing` \| `transcribing` \| `detecting` \| `ready` \| `failed` \| `cancelled` |
-| duration_ms | integer | null |
+| status | varchar(32) | composition : `draft` (défaut) \| `rendering` \| `ready` \| `failed` ; clipping : `pending` \| `importing` \| `analyzing` \| `transcribing` \| `detecting` \| `ready` \| `failed` \| `cancelled` (CHECK dépendant de `kind`) |
+| duration_ms | integer | null — composition : fin de la timeline, recalculée à chaque modification (ADR-044) |
 | language | varchar(10) | null (détectée ou choisie) |
 | error | varchar(1000) | null |
 | created_at, updated_at, deleted_at | timestamp | |
 « `source_media_id` ou `source_url` obligatoire » : contrôlé côté application (MySQL interdit un CHECK sur une colonne portant une action référentielle).
+Index : (`user_id`, `status`), (`user_id`, `kind`, `updated_at`). Projets antérieurs à l'ADR-042 : marqués `clipping` par la migration.
 
 #### `video_transcripts`
 | Colonne | Type | Notes |
@@ -364,17 +380,141 @@ Contrainte : **unique** (`video_project_id`, `language`).
 | id | uuid | PK |
 | video_project_id | uuid | FK ON DELETE CASCADE |
 | title | varchar(255) | |
-| start_ms, end_ms | integer | CHECK `0 <= start_ms < end_ms` ; `end_ms <=` durée du projet (contrôle applicatif) |
+| topic | varchar(255) | null — sujet du passage proposé par l'analyse (ADR-046) |
+| reason | varchar(1000) | null — pourquoi ce passage (analyse IA) |
+| start_ms, end_ms | integer | CHECK `0 <= start_ms < end_ms` ; CHECK `end_ms - start_ms <= 60000` (**un clip ne dépasse jamais 60 s**, ADR-046) ; `end_ms <=` durée de la source (contrôle applicatif) |
 | duration_ms | integer | colonne générée `end_ms - start_ms` |
-| score | numeric(5,2) | null, 0 à 100 |
+| score | numeric(5,2) | null, 0 à 100 — depuis l'ADR-051, **calculé par le backend** (ClipScorer, moyenne pondérée de `score_breakdown`), jamais repris de l'IA |
+| hook | varchar(255) | null — accroche affichable proposée par l'IA (ADR-051) |
+| confidence | tinyint unsigned | null, 0 à 100 (CHECK) — confiance de l'IA dans ce choix (ADR-051) |
+| score_breakdown | json | null — critères notés 0-100 par l'IA : `hook`, `value`, `autonomy`, `emotion`, `rhythm`, `quality` (ADR-051) |
 | aspect_ratio | varchar(8) | `9:16` \| `1:1` \| `16:9` (CHECK) |
 | subtitles_enabled | boolean | |
 | subtitle_style | json | null, liste blanche de propriétés (police, taille, couleur, position) |
-| source | varchar(16) | `ai` \| `manual` |
+| source | varchar(16) | `ai` \| `manual` \| `auto` (analyse locale, ADR-047) \| `external` (autorisée par la migration 2026_10_07_195617, plus produite depuis le retrait d'OpusClip — ADR-050 remplacée par l'ADR-051) |
 | status | varchar(16) | `suggested` \| `edited` \| `rendering` \| `rendered` \| `failed` \| `discarded` |
 | output_media_id | uuid | null, FK `media` ON DELETE SET NULL |
+| error_code | varchar(64) | null — code normalisé d'échec du rendu (ex. `SOURCE_RANGE`, `OUTPUT_TOO_LONG`) |
+| error_message | varchar(500) | null — message affichable, sans chemin ni sortie FFmpeg |
+| started_at, finished_at | timestamp | null — prise par le worker (idempotence), fin du rendu |
 | created_at, updated_at | timestamp | |
 Index : (`video_project_id`, `score` DESC).
+
+YouTube Clipper (ADR-046) : un projet `clipping` a `source_type = url` (lien YouTube canonique, vérifié par oEmbed) et, éventuellement, `source_media_id` (vidéo de la médiathèque, seule source réellement découpée). Depuis l'ADR-048, le projet peut être créé depuis le lien seul (`source_media_id` null) : passages proposés depuis le lien si un fournisseur compatible est configuré, mais aucun rendu tant que la vidéo source n'est pas jointe (409 `SOURCE_REQUIRED`). `duration_ms` = durée mesurée par FFprobe (null tant qu'aucune source n'est jointe) ; `settings` contient `youtube_video_id`, `youtube_author`, `youtube_thumbnail` (CDN i.ytimg.com uniquement) et, en cas d'échec d'analyse, `analysis_error_code`. Statuts : `pending → analyzing → transcribing → detecting → ready | failed`. Depuis l'ADR-049, `settings.transcript_media_id` indique la source transcrite (transcription réutilisée lors d'une relance) et `settings.analysis.recalibrated` le nombre de passages issus du lien recalés sur la vraie source ; les segments de `video_transcripts.segments` peuvent porter `words` (`[début ms, fin ms, mot]`, whisper.cpp).
+
+#### `video_sources` (ADR-049)
+Source vidéo d'un projet du Clipper : la **référence YouTube** est séparée du **fichier rendable**, obtenu par une voie autorisée.
+
+| Colonne | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| user_id | uuid | FK ON DELETE CASCADE |
+| video_project_id | uuid | FK ON DELETE CASCADE, **UNIQUE** (une source par projet) |
+| provider | varchar(32) | `youtube` (CHECK) |
+| external_reference | varchar(64) | identifiant de la vidéo YouTube |
+| source_type | varchar(32) | `youtube_video` (CHECK) |
+| ownership_status | varchar(16) | `unverified` \| `owned` \| `not_owned` (CHECK) — vérifié par l'OAuth YouTube (videos.list, lecture seule) |
+| ownership_account_id | uuid | null, FK `social_accounts` ON DELETE SET NULL — chaîne propriétaire |
+| ownership_checked_at | timestamp | null |
+| acquisition_method | varchar(32) | null — `data_portability` \| `external` \| `import` \| `library` \| `yt_dlp` (ADR-059) |
+| status | varchar(24) | `pending` \| `resolving` \| `waiting_for_provider` \| `ready` \| `failed` \| `expired` \| `unavailable` (CHECK) |
+| media_id | uuid | null, FK `media` ON DELETE SET NULL — fichier acquis (le projet le référence aussi par `source_media_id`, utilisé par le rendu) |
+| duration_ms, size_bytes, mime_type | | null — caractéristiques du fichier acquis |
+| attempts | smallint | relances d'un fournisseur en attente (bornées : `video.sources.max_attempts`) |
+| next_check_at | timestamp | null — prochaine interrogation du fournisseur |
+| purge_at | timestamp | null — purge du fichier acquis automatiquement (`clipper:expire-sources`) ; toujours null pour un import de l'utilisateur |
+| error_code, error_message | varchar(64), varchar(500) | null — erreur normalisée (`PROVIDER_NOT_CONFIGURED`, `NO_PROVIDER_FOR_SOURCE`, `CONSENT_REQUIRED`, `SOURCE_TOO_LARGE`, `SOURCE_TOO_LONG`, `SOURCE_EXPIRED`…) |
+| metadata | json | null — état propre au fournisseur (ex. `archive_job_id`, `provider`, `ownership_reason`), jamais de jeton |
+| created_at, updated_at | timestamp | |
+Index : (`status`, `purge_at`), (`provider`, `external_reference`).
+
+#### `video_scenes` (composition)
+| Colonne | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| video_project_id | uuid | FK ON DELETE CASCADE |
+| position | smallint | unique (`video_project_id`, `position`), positions contiguës 0, 1, 2… |
+| name | varchar(100) | null |
+| role | varchar(8) | `hook` \| `intro` \| `body` (défaut) \| `cta` |
+| duration_ms | integer | CHECK 500 à 30 000 |
+| media_id | uuid | null, FK `media` ON DELETE RESTRICT |
+| media_type | varchar(8) | null \| `image` \| `video` |
+| media_start_ms | integer | null, début de l'extrait d'une vidéo source |
+| fit | varchar(8) | `cover` (défaut) \| `contain` |
+| on_screen_text | varchar(500) | null |
+| voiceover_text | text | null |
+| visual_prompt | varchar(500) | null — suggestion de l'IA |
+| transition | varchar(8) | `none` (défaut) \| `fade` |
+| settings | json | null |
+| created_at, updated_at | timestamp | |
+
+#### `video_tracks` (composition) — pistes de timeline (ADR-044, remplace les pistes audio de l'ADR-042)
+| Colonne | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| video_project_id | uuid | FK ON DELETE CASCADE |
+| type | varchar(16) | `video` \| `image` \| `text` \| `audio` \| `overlay` |
+| name | varchar(100) | '' par défaut |
+| position | smallint | calque : 0 = arrière-plan ; unique (`video_project_id`, `position`) |
+| locked, muted, hidden | boolean | false |
+| metadata | json | null |
+| created_at, updated_at | timestamp | |
+
+#### `video_project_assets` (composition) — médias de la médiathèque rattachés au projet
+| Colonne | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| video_project_id | uuid | FK ON DELETE CASCADE |
+| user_id | uuid | FK ON DELETE CASCADE ; FK composites (`video_project_id`, `user_id`) → `video_projects` (`id`, `user_id`) et (`media_id`, `user_id`) → `media` (`id`, `user_id`) : projet et média du même utilisateur |
+| media_id | uuid | FK `media` ON DELETE RESTRICT ; unique (`video_project_id`, `media_id`) |
+| created_at, updated_at | timestamp | |
+Aucune copie de fichier. Un média supprimé de la médiathèque reste rattaché, signalé indisponible (`available = false`).
+
+#### `video_timeline_items` (composition) — éléments de timeline, temps en millisecondes
+| Colonne | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| video_track_id | uuid | FK ON DELETE CASCADE |
+| video_scene_id | uuid | null, FK ON DELETE SET NULL (supprimer la scène détache l'élément) |
+| video_project_asset_id | uuid | null, FK ON DELETE RESTRICT (un asset utilisé ne peut pas être retiré) |
+| type | varchar(8) | `video` \| `image` \| `text` \| `audio` |
+| start_ms | integer | position sur la timeline, >= 0 |
+| duration_ms | integer | CHECK > 0 |
+| source_start_ms, source_duration_ms | integer | null ; extrait du média source, vidéo et audio seulement (CHECK) |
+| properties | json | null — liste blanche par type (texte, taille, couleur, position, cadrage, volume) |
+| transitions | json | null — `in`, `out` (`none` \| `fade`), `duration_ms` (0 à 2 000) |
+| created_at, updated_at | timestamp | |
+Index : (`video_track_id`, `start_ms`). Ordre dans une piste : `start_ms` ; superposition : position de la piste.
+
+#### `video_render_jobs` (composition)
+| Colonne | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| video_project_id | uuid | FK ON DELETE CASCADE |
+| user_id | uuid | FK ON DELETE CASCADE ; FK composite (`video_project_id`, `user_id`) → `video_projects` (`id`, `user_id`) |
+| status | varchar(16) | `queued` (défaut) \| `rendering` \| `succeeded` \| `failed` \| `cancelled` |
+| progress | tinyint | CHECK 0 à 100 |
+| spec | json | timeline figée au moment de la demande |
+| spec_hash | char(64) | SHA-256 de `spec` (idempotence) |
+| renderer | varchar(32) | null |
+| aspect_ratio | varchar(8) | null, format figé à la demande |
+| width, height | smallint | null, > 0 |
+| fps | tinyint | null, 1 à 60 |
+| output_media_id | uuid | null, FK `media` ON DELETE SET NULL — le MP4 est un média normal |
+| error_code, error_message | varchar | null |
+| started_at, finished_at | timestamp | null |
+| active_project_id | uuid | colonne générée : `video_project_id` si `queued` ou `rendering`, sinon NULL ; **unique**, soit un seul rendu actif par projet |
+| created_at, updated_at | timestamp | |
+Index : (`video_project_id`, `created_at`), (`user_id`, `status`), (`video_project_id`, `spec_hash`).
+
+**Règles non exprimables en SQL** (MySQL interdit un CHECK sur une colonne portant une action référentielle).
+Elles sont appliquées sous le verrou du projet par les services `app/Domain/Video` (ADR-044) :
+- fond d'une scène (`VideoSceneService`) : média image ou vidéo utilisable du propriétaire ; `media_type` = type réel ;
+- élément (`VideoTimelineService`) : type accepté par la piste ; asset du même projet, de même type, média utilisable ;
+  texte sans asset ; durée >= 100 ms ; fin <= 90 s ; aucun chevauchement sur une piste ; extrait dans la durée du média ;
+  piste verrouillée non modifiable ;
+- limites (`config/video.php`) : 20 scènes, 8 pistes, 100 éléments par piste, 100 médias par projet ;
+- `ai_generation_id` référence une génération du même utilisateur (à valider lors de la génération IA, phase ultérieure).
 
 ### 3.7 ANALYTICS
 
@@ -407,6 +547,21 @@ Index : (`social_account_id`, `fetched_at`). Rétention : 13 mois (configurable)
 | updated_at | timestamp | |
 Contrainte : **unique** (`social_account_id`, `post_variant_key`, `metric_date`, `granularity`) — **[MySQL]** `post_variant_key` = colonne générée `COALESCE(post_variant_id, '')`.
 Index : (`social_account_id`, `metric_date`). Le taux d'engagement est **calculé** à la lecture (définition documentée par plateforme), jamais stocké.
+
+#### `analytics_sync_states` (état de la collecte — ADR-063)
+| Colonne | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| social_account_id | uuid | FK ON DELETE CASCADE |
+| post_variant_id | uuid | null, FK ON DELETE CASCADE (null = collecte du compte) |
+| status | varchar(16) | `pending` \| `running` \| `succeeded` \| `failed` \| `unsupported` (CHECK) |
+| last_attempt_at, last_success_at | datetime | null |
+| last_error_code | varchar(64) | null — ex. `RATE_LIMITED`, `NO_ADAPTER`, `ACCOUNT_NOT_CONNECTED`, `INVALID_METRICS` |
+| last_error_message | varchar(500) | null, sans jeton ni secret |
+| consecutive_failures | smallint unsigned | nouvelles tentatives bornées (`analytics.sync.backoff`) |
+| next_attempt_at | datetime | null = aucune relance automatique (échec définitif ou délais épuisés) |
+Contrainte : **unique** (`social_account_id`, `post_variant_key`) — **[MySQL]** `post_variant_key` = colonne générée `COALESCE(post_variant_id, '')`.
+Index : (`status`, `next_attempt_at`). Zéro réel et métrique non fournie restent dans `analytics` (0 / NULL) ; une collecte échouée est ici, sans jamais écraser les dernières valeurs valides.
 
 ### 3.8 SECURITY
 
@@ -467,6 +622,18 @@ erDiagram
     video_projects ||--o{ video_transcripts : has
     video_projects ||--o{ video_clips : proposes
     video_clips }o--o| media : "exports to"
+    video_projects ||--o{ video_scenes : "composed of"
+    video_projects ||--o{ video_tracks : "has audio"
+    video_projects ||--o{ video_render_jobs : renders
+    users ||--o{ video_render_jobs : owns
+    video_scenes }o--o| media : "shows (nullable)"
+    video_tracks ||--o{ video_timeline_items : contains
+    video_projects ||--o{ video_project_assets : uses
+    video_project_assets }o--|| media : references
+    video_timeline_items }o--o| video_project_assets : "shows (nullable)"
+    video_timeline_items }o--o| video_scenes : "belongs to (nullable)"
+    video_render_jobs }o--o| media : "outputs (nullable)"
+    video_projects }o--o| ai_generations : "created from (nullable)"
 
     ai_generations }o--o| posts : "for (nullable)"
     ai_generations }o--o| video_projects : "for (nullable)"

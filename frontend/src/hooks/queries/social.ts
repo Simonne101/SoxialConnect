@@ -30,3 +30,5 @@ export const useDisconnectAccount = () => useSocialMutation(social.disconnectAcc
 export const useSyncAccount = () => useSocialMutation(social.syncAccount)
 /** Connexion OAuth officielle : redirige le navigateur vers la plateforme (aucun token côté client). */
 export const useStartOAuth = () => useSocialMutation(social.startOAuth)
+/** Telegram : lien de liaison (le résultat arrive par le webhook, puis dans la liste des comptes). */
+export const useTelegramLink = () => useMutation({ mutationFn: social.startTelegramLink })

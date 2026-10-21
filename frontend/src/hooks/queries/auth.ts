@@ -14,6 +14,18 @@ export function useLogin() {
   })
 }
 
+/** Second facteur : même effet que la connexion une fois le code accepté. */
+export function useTwoFactorChallenge() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: auth.twoFactorChallenge,
+    onSuccess: (user) => {
+      qc.clear()
+      qc.setQueryData(qk.me, user)
+    },
+  })
+}
+
 export function useRegister() {
   const qc = useQueryClient()
   return useMutation({
@@ -32,6 +44,10 @@ export function useLogout() {
     mutationFn: auth.logout,
     onSettled: () => qc.clear(),
   })
+}
+
+export function useResendVerification() {
+  return useMutation({ mutationFn: auth.resendVerificationEmail })
 }
 
 export function useForgotPassword() {

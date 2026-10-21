@@ -45,13 +45,66 @@ export interface RegisterInput {
   passwordConfirmation: string
 }
 
+/** Mot de passe valide, mais le compte exige son second facteur (POST /auth/two-factor-challenge). */
+export class TwoFactorRequired extends Error {
+  constructor() {
+    super("Code de double authentification requis.")
+  }
+}
+
 export async function login(input: LoginInput): Promise<UserProfile> {
   if (!isApiEnabled) {
     await delay(600)
     return structuredClone(store.user)
   }
   const res = await http.post<ApiUser>("/auth/login", { email: input.email, password: input.password, remember: input.remember })
+  // Fortify répond { two_factor: true } (hors enveloppe) tant que le code n'a pas été saisi.
+  if ((res as { two_factor?: boolean } | null)?.two_factor === true) throw new TwoFactorRequired()
   return toUserProfile(res!.data)
+}
+
+/** Second facteur : code de l'application (6 chiffres) ou code de secours (usage unique). */
+export async function twoFactorChallenge(input: { code?: string; recoveryCode?: string }): Promise<UserProfile> {
+  const body = input.recoveryCode ? { recovery_code: input.recoveryCode } : { code: input.code }
+  const res = await http.post<ApiUser>("/auth/two-factor-challenge", body)
+  return toUserProfile(res!.data)
+}
+
+// --- Gestion de la double authentification (Paramètres > Sécurité) ------------------------------
+// Toutes ces routes exigent une confirmation récente du mot de passe : sinon ApiError 423.
+
+export const PASSWORD_CONFIRMATION_REQUIRED = 423
+
+export async function confirmPassword(password: string): Promise<void> {
+  await http.post("/auth/user/confirm-password", { password })
+}
+
+export async function enableTwoFactor(): Promise<void> {
+  await http.post("/auth/user/two-factor-authentication")
+}
+
+/** QR code (SVG à afficher comme image) et clé à saisir à la main dans l'application. */
+export async function twoFactorSetup(): Promise<{ svg: string; secretKey: string }> {
+  const qr = (await http.get("/auth/user/two-factor-qr-code")) as unknown as { svg: string }
+  const key = (await http.get("/auth/user/two-factor-secret-key")) as unknown as { secretKey: string }
+  return { svg: qr.svg, secretKey: key.secretKey }
+}
+
+export async function confirmTwoFactor(code: string): Promise<void> {
+  await http.post("/auth/user/confirmed-two-factor-authentication", { code })
+}
+
+export async function recoveryCodes(): Promise<string[]> {
+  return (await http.get("/auth/user/two-factor-recovery-codes")) as unknown as string[]
+}
+
+export async function regenerateRecoveryCodes(): Promise<string[]> {
+  await http.post("/auth/user/two-factor-recovery-codes")
+  return recoveryCodes()
+}
+
+export async function disableTwoFactor(): Promise<void> {
+  await http.delete("/auth/user/two-factor-authentication")
 }
 
 export async function register(input: RegisterInput): Promise<UserProfile> {
@@ -87,6 +140,15 @@ export async function forgotPassword(email: string): Promise<void> {
 }
 
 /** Utilisateur courant ; ApiError 401 si aucune session. */
+/** Renvoie le lien de vérification de l'adresse e-mail (POST /auth/email/verification-notification). */
+export async function resendVerificationEmail(): Promise<void> {
+  if (!isApiEnabled) {
+    await delay(400)
+    return
+  }
+  await http.post("/auth/email/verification-notification")
+}
+
 export async function currentUser(): Promise<UserProfile> {
   if (!isApiEnabled) {
     await delay(150)

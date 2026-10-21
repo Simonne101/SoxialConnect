@@ -1,6 +1,9 @@
 <?php
 
+use App\Domain\Publishing\Adapters\LinkedInPublisher;
+use App\Domain\Publishing\Adapters\TelegramPublisher;
 use App\Domain\Publishing\Adapters\TikTokPublisher;
+use App\Domain\Publishing\Adapters\XPublisher;
 use App\Domain\Publishing\Adapters\YouTubePublisher;
 
 /*
@@ -13,10 +16,15 @@ return [
      * App\Domain\Publishing\Contracts\SocialPublisher. Tout réseau absent de cette liste utilise
      * NotConfiguredPublisher (aucun appel, aucun succès simulé). YouTube et TikTok : sans identifiants
      * (services.youtube, services.tiktok), l'adaptateur répond lui-même NOT_CONFIGURED.
+     * Telegram : sans bot configuré (services.telegram.bot_token), NOT_CONFIGURED également.
+     * X : texte uniquement (médias refusés avant tout envoi) ; sans identifiants X, NOT_CONFIGURED.
      */
     'adapters' => [
         'youtube' => YouTubePublisher::class,
         'tiktok' => TikTokPublisher::class,
+        'telegram' => TelegramPublisher::class,
+        'linkedin' => LinkedInPublisher::class,
+        'x' => XPublisher::class,
     ],
 
     /* Tentatives automatiques par demande de publication (erreurs temporaires uniquement). */

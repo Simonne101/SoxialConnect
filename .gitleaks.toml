@@ -1,0 +1,22 @@
+# Détection de secrets (gitleaks ≥ 8.28) — CI et vérification avant publication (ADR-075).
+# Règles par défaut de gitleaks, plus deux exceptions ÉTROITES (chemins) :
+# - tests automatisés : ils contiennent volontairement de FAUX secrets (« sk-test-fictive-…-doit-jamais-sortir », faux
+#   jeton de bot, mots de passe et JWT d'exemple) pour prouver l'expurgation des journaux ;
+# - modèles .env : valeurs vides ou d'exemple uniquement ; la CI le vérifie à part (étape « Modèles .env sans secret »),
+#   car la règle générique y confond une variable vide suivie de la ligne suivante avec une valeur.
+# Partout ailleurs (code, configuration, Docker, documentation), toutes les règles s'appliquent.
+# Séparateurs « / » ou « \ » : même résultat sous Windows et sous Linux.
+title = "SoxialConnect"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Faux secrets des tests automatisés et modèles de configuration sans valeur"
+paths = [
+    '''^backend[\\/]tests[\\/]''',
+    '''^frontend[\\/]tests[\\/]''',
+    '''(^|[\\/])\.env\.example$''',
+    '''(^|[\\/])\.env\.production\.example$''',
+    '''^deploy[\\/]docker[\\/]compose\.env\.example$''',
+]

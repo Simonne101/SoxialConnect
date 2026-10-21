@@ -1,4 +1,4 @@
-import { Download, ExternalLink, Pencil, ShieldAlert, SquarePen, Trash2, X } from "lucide-react"
+import { Download, ExternalLink, Pencil, Send, ShieldAlert, Trash2, X } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router"
 import { toast } from "sonner"
@@ -18,6 +18,7 @@ import { useMediaTag, useUpdateMedia } from "@/hooks/queries/media"
 import { formatBytes, formatDate, formatDuration } from "@/lib/format"
 import { apiErrorMessage } from "@/lib/http"
 import { MEDIA_STATUS, SCAN_STATUS } from "@/lib/status"
+import { composerStateFor } from "@/lib/mediaPublishing"
 import { normalizeTag } from "@/services/media"
 import type { MediaAsset, MediaFolder } from "@/types"
 import { MediaThumb } from "./MediaThumb"
@@ -144,8 +145,8 @@ export function MediaPreviewDialog({
                 </div>
                 <div className="flex flex-col gap-2 border-t border-border pt-4">
                   {(media.type === "image" || media.type === "video") && (
-                    <Button disabled={!media.usable} onClick={() => navigate("/content/create", { state: { mediaIds: [media.id] } })}>
-                      <SquarePen /> Utiliser dans une publication
+                    <Button disabled={!media.usable} onClick={() => navigate("/content/create", { state: composerStateFor([media.id]) })}>
+                      <Send /> Publier sur les réseaux
                     </Button>
                   )}
                   <div className="flex gap-2">

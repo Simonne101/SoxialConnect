@@ -660,8 +660,15 @@ final class PublishingService
         $errors = [];
         if ($variants->isEmpty()) {
             $errors['targets'] = 'Choisissez au moins un réseau social avant de publier.';
-        } elseif ($variants->contains(fn (PostVariant $v) => $v->socialAccount === null || ! $v->socialAccount->isConnected())) {
-            $errors['targets'] = 'Un des comptes sociaux n\'est plus connecté. Reconnectez-le ou retirez-le de la publication.';
+        } else {
+            // Destinations multiples : les comptes à reconnecter sont nommés, pour pouvoir les décocher.
+            $notReady = $variants->filter(fn (PostVariant $v) => $v->socialAccount === null || ! $v->socialAccount->isConnected())
+                ->map(fn (PostVariant $v) => $v->socialAccount?->display_name ?? $v->socialAccount?->username ?? 'compte supprimé')
+                ->unique()->values();
+            if ($notReady->isNotEmpty()) {
+                $errors['targets'] = ($notReady->count() > 1 ? 'Ces comptes ne sont plus connectés : ' : 'Ce compte n\'est plus connecté : ')
+                    .$notReady->implode(', ').'. Reconnectez-les ou retirez-les de la publication.';
+            }
         }
         if (blank($post->body) && ! $post->postMedia()->exists()) {
             $errors['body'] = 'Ajoutez un texte ou un média.';

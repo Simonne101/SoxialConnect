@@ -34,7 +34,7 @@ export const MAIN_NAV: NavItem[] = [
   { to: "/content/calendar", label: "Calendrier", icon: CalendarDays },
   { to: "/social-accounts", label: "Réseaux sociaux", icon: Share2 },
   { to: "/media", label: "Médias", icon: Images },
-  { to: "/video-studio", label: "Clipping vidéo", icon: Clapperboard },
+  { to: "/studio", label: "Creative Studio", icon: Clapperboard },
   { to: "/ai", label: "Assistant IA", icon: Sparkles },
   { to: "/analytics", label: "Analytics", icon: LineChart },
   { to: "/notifications", label: "Notifications", icon: Bell, badge: "notifications" },

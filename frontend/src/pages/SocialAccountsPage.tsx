@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { PlugZap, RefreshCw, ShieldCheck } from "lucide-react"
+import { MailCheck, PlugZap, RefreshCw, ShieldCheck } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "react-router"
 import { toast } from "sonner"
@@ -10,24 +10,30 @@ import { StatusBadge } from "@/components/shared/StatusBadge"
 import { ConnectDialog } from "@/components/social/ConnectDialog"
 import { ManageAccountSheet } from "@/components/social/ManageAccountSheet"
 import { Button } from "@/components/ui/button"
+import { useResendVerification } from "@/hooks/queries/auth"
 import { qk } from "@/hooks/queries/keys"
+import { useMe } from "@/hooks/queries/misc"
 import { useSocialAccounts } from "@/hooks/queries/social"
-import { isApiEnabled } from "@/lib/http"
+import { apiErrorMessage, isApiEnabled } from "@/lib/http"
 import { formatInt } from "@/lib/format"
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
 import { ACCOUNT_STATUS } from "@/lib/status"
-import { placeholderAccount } from "@/services/socialAccounts"
+import { placeholderAccount, supportsOAuth, supportsTelegramLink } from "@/services/socialAccounts"
 import type { SocialAccount } from "@/types"
 
-/** Codes renvoyés par le callback OAuth (backend) → message lisible. Jamais de détail technique. */
-const OAUTH_ERRORS: Record<string, string> = {
-  ACCESS_DENIED: "Autorisation annulée sur Google : aucun compte n'a été connecté.",
-  SCOPE_DENIED: "La mise en ligne de vidéos n'a pas été autorisée. Reconnectez-vous en acceptant toutes les autorisations.",
-  INVALID_STATE: "La demande de connexion a expiré ou n'est plus valide. Relancez la connexion.",
-  NO_CHANNEL: "Ce compte Google n'a pas de chaîne YouTube. Créez une chaîne puis reconnectez-vous.",
-  NOT_CONFIGURED: "La connexion YouTube n'est pas encore configurée sur le serveur.",
-  OAUTH_CLIENT_INVALID: "La configuration OAuth Google du serveur est invalide.",
-  NETWORK_ERROR: "Google est momentanément injoignable. Réessayez dans un instant.",
+/** Codes renvoyés par les callbacks OAuth (backend) → message lisible. Jamais de détail technique. */
+const OAUTH_ERRORS: Record<string, (network: string) => string> = {
+  ACCESS_DENIED: (n) => `Autorisation annulée sur ${n} : aucun compte n'a été connecté.`,
+  SCOPE_DENIED: (n) => `La publication de vidéos n'a pas été autorisée sur ${n}. Reconnectez-vous en acceptant toutes les autorisations.`,
+  PUBLISH_SCOPE_DENIED: (n) => `La permission de publier n'a pas été accordée sur ${n}. Reconnectez-vous en acceptant toutes les autorisations.`,
+  INVALID_STATE: () => "La demande de connexion a expiré ou n'est plus valide. Relancez la connexion.",
+  NO_CHANNEL: () => "Ce compte Google n'a pas de chaîne YouTube. Créez une chaîne puis reconnectez-vous.",
+  NOT_CONFIGURED: (n) => `La connexion ${n} n'est pas encore configurée sur le serveur.`,
+  OAUTH_CLIENT_INVALID: (n) => `La configuration OAuth ${n} du serveur est invalide.`,
+  NETWORK_ERROR: (n) => `${n} est momentanément injoignable. Réessayez dans un instant.`,
+  TOKEN_REVOKED: (n) => `${n} a refusé l'autorisation (lien expiré). Relancez la connexion.`,
+  API_ACCESS_DENIED: (n) => `${n} refuse l'accès à son API pour SoxialConnect (offre ou crédits API). Contactez l'administrateur.`,
+  RATE_LIMITED: (n) => `${n} limite temporairement les requêtes. Réessayez dans quelques minutes.`,
 }
 
 function entitiesLabel(a: SocialAccount) {
@@ -37,8 +43,14 @@ function entitiesLabel(a: SocialAccount) {
 }
 
 export default function SocialAccountsPage() {
-  const { data, isLoading, isError, refetch } = useSocialAccounts()
+  const { data, isLoading, isError, error, refetch } = useSocialAccounts()
+  const me = useMe()
+  const resend = useResendVerification()
+  // Adresse non vérifiée : la page reste utilisable, mais connecter un réseau exige la vérification.
+  const unverified = isApiEnabled && me.data?.emailVerified === false
   const [connectFor, setConnectFor] = useState<SocialAccount | null>(null)
+  // Ajout d'un compte supplémentaire (réseau déjà connecté) : consignes de choix du compte affichées.
+  const [addingAnother, setAddingAnother] = useState(false)
   const [manageId, setManageId] = useState<string | null>(null)
   const [params, setParams] = useSearchParams()
   const qc = useQueryClient()
@@ -49,19 +61,25 @@ export default function SocialAccountsPage() {
     if (!provider) return
     const name = provider in PLATFORMS ? PLATFORMS[provider as keyof typeof PLATFORMS].name : "Le réseau"
     if (params.get("status") === "connected") toast.success(`${name} est connecté.`, { id: "oauth-result" })
-    else toast.error(OAUTH_ERRORS[params.get("code") ?? ""] ?? `La connexion à ${name} a échoué. Réessayez.`, { id: "oauth-result" })
+    else toast.error(OAUTH_ERRORS[params.get("code") ?? ""]?.(name) ?? `La connexion à ${name} a échoué. Réessayez.`, { id: "oauth-result" })
     void qc.invalidateQueries({ queryKey: qk.socialAccounts })
     setParams({}, { replace: true })
   }, [params, setParams, qc])
 
-  // Backend branché : un emplacement « à connecter » pour chaque réseau sans compte.
+  // Backend branché : un emplacement « à connecter » pour chaque réseau sans compte. La liste des
+  // réseaux vient de la configuration (PLATFORM_ORDER), jamais de la présence d'un compte connecté.
   const listed = [...(data ?? [])]
   if (isApiEnabled && data) {
     for (const platform of PLATFORM_ORDER) if (!listed.some((a) => a.platform === platform)) listed.push(placeholderAccount(platform))
   }
   const accounts = listed.sort((a, b) => PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform))
   const manage = accounts.find((a) => a.id === manageId) ?? null
-  const connected = accounts.filter((a) => a.status === "connected").length
+  // Réseaux connectés (Telegram peut compter plusieurs chaînes ou groupes : un seul réseau).
+  const connected = new Set(accounts.filter((a) => a.status === "connected").map((a) => a.platform)).size
+  // « Ajouter » : sur la première ligne de chaque réseau connectable qui a déjà un compte
+  // (plusieurs chaînes YouTube, plusieurs destinations Telegram…).
+  const canAdd = (a: SocialAccount) => supportsOAuth(a.platform) || supportsTelegramLink(a.platform)
+  const firstRowIds = new Set(PLATFORM_ORDER.map((p) => accounts.find((a) => a.platform === p && !a.id.startsWith("new:") && canAdd(a))?.id).filter(Boolean))
   const attention = accounts.filter((a) => ["expired", "permission_required", "error"].includes(a.status)).length
 
   return (
@@ -89,11 +107,35 @@ export default function SocialAccountsPage() {
         </div>
       </div>
 
+      {unverified && (
+        <div role="status" className="mb-6 flex flex-col gap-3 rounded-2xl border border-warning-100 bg-warning-50 p-4 sm:flex-row sm:items-center">
+          <MailCheck className="size-5 shrink-0 text-warning-700" aria-hidden="true" />
+          <p className="flex-1 text-sm text-warning-700">
+            Vérifiez votre adresse e-mail ({me.data?.email}) pour connecter un réseau social : cliquez sur le lien reçu par e-mail.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={resend.isPending || resend.isSuccess}
+            onClick={() => resend.mutate(undefined, {
+              onSuccess: () => toast.success("Un nouveau lien de vérification vient d'être envoyé."),
+              onError: (e) => toast.error(apiErrorMessage(e, "L'envoi a échoué. Réessayez dans un instant.")),
+            })}
+          >
+            {resend.isSuccess ? "Lien envoyé" : "Renvoyer l'e-mail"}
+          </Button>
+        </div>
+      )}
+
+      {!isLoading && !isError && connected === 0 && (
+        <p className="mb-3 text-sm text-ink-muted">Aucun compte connecté pour le moment : choisissez un réseau ci-dessous puis cliquez sur « Connecter ».</p>
+      )}
+
       <section className="surface-card p-2 sm:p-3" aria-label="Liste des réseaux">
         {isLoading ? (
           <div className="p-4"><ListSkeleton rows={8} /></div>
         ) : isError ? (
-          <ErrorState onRetry={() => refetch()} />
+          <ErrorState description={apiErrorMessage(error, "Vérifiez votre connexion puis réessayez.")} onRetry={() => refetch()} />
         ) : (
           <ul className="divide-y divide-border">
             {accounts.map((a) => {
@@ -102,10 +144,12 @@ export default function SocialAccountsPage() {
               return (
                 <li key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-3 py-4 xl:flex-nowrap">
                   <PlatformIcon platform={a.platform} size="lg" />
-                  <div className="min-w-0 flex-1 xl:w-48 xl:flex-none">
+                  <div className="min-w-0 flex-1 basis-32 xl:w-48 xl:flex-none">
                     <p className="font-semibold text-ink">{cfg.name}</p>
                     <p className="truncate text-xs text-ink-muted">
-                      {a.username ?? a.displayName ?? cfg.accountRequirement}
+                      {a.platform === "telegram" && a.displayName
+                        ? `${a.displayName}${a.username ? ` · ${a.username}` : ""} · ${a.accountType === "group" ? "Groupe" : "Chaîne"}`
+                        : a.username ?? a.displayName ?? cfg.accountRequirement}
                       {a.entities.length > 0 && <span className="xl:hidden"> · {entitiesLabel(a)}</span>}
                     </p>
                   </div>
@@ -126,6 +170,15 @@ export default function SocialAccountsPage() {
                           <Button onClick={() => setConnectFor(a)} aria-label={`Reconnecter ${cfg.name}`}>Reconnecter</Button>
                         )}
                         <Button variant="outline" onClick={() => setManageId(a.id)} aria-label={`Gérer ${cfg.name}`}>Gérer</Button>
+                        {isApiEnabled && firstRowIds.has(a.id) && (
+                          <Button
+                            variant="secondary"
+                            onClick={() => { setAddingAnother(true); setConnectFor(placeholderAccount(a.platform)) }}
+                            aria-label={a.platform === "telegram" ? "Ajouter une autre chaîne ou un autre groupe Telegram" : `Ajouter un autre compte ${cfg.name}`}
+                          >
+                            Ajouter
+                          </Button>
+                        )}
                       </>
                     )}
                   </div>
@@ -136,7 +189,7 @@ export default function SocialAccountsPage() {
         )}
       </section>
 
-      <ConnectDialog account={connectFor} onOpenChange={(o) => !o && setConnectFor(null)} />
+      <ConnectDialog account={connectFor} addingAnother={addingAnother} onOpenChange={(o) => { if (!o) { setConnectFor(null); setAddingAnother(false) } }} />
       <ManageAccountSheet account={manage} onOpenChange={(o) => !o && setManageId(null)} onReconnect={(a) => { setManageId(null); setConnectFor(a) }} />
     </>
   )

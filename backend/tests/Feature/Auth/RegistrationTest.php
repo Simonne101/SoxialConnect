@@ -4,7 +4,7 @@ namespace Tests\Feature\Auth;
 
 use App\Models\AuditLog;
 use App\Models\User;
-use Illuminate\Auth\Notifications\VerifyEmail;
+use App\Notifications\VerifyEmailNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
@@ -41,7 +41,7 @@ class RegistrationTest extends TestCase
         $this->assertTrue(Hash::check('une-phrase-de-passe-longue', $user->password));
         $this->assertStringStartsWith('$argon2id$', $user->password);
         $this->assertAuthenticatedAs($user);
-        Notification::assertSentTo($user, VerifyEmail::class);
+        Notification::assertSentTo($user, VerifyEmailNotification::class);
         $this->assertDatabaseHas('audit_logs', ['user_id' => $user->id, 'action' => 'REGISTERED']);
     }
 

@@ -26,7 +26,7 @@
         <env name="ARGON_MEMORY" value="1024"/>
         <env name="ARGON_TIME" value="1"/>
         <env name="ARGON_THREADS" value="1"/>
-        <env name="LOG_STACK" value="single"/>
+        <env name="LOG_STACK" value="testing"/>
         <env name="SESSION_DOMAIN" value="null"/>
         <env name="SANCTUM_STATEFUL_DOMAINS" value="localhost:5173"/>
         <env name="CORS_ALLOWED_ORIGINS" value="http://localhost:5173"/>
@@ -45,5 +45,20 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- IA et acquisition de source : jamais la configuration locale (.env) ni une vraie clé ;
+             les tests qui en ont besoin la fixent eux-mêmes (appels HTTP simulés). -->
+        <env name="GEMINI_API_KEY" value=""/>
+        <env name="AI_VIDEO_ANALYSIS_PROVIDER" value=""/>
+        <env name="AI_VIDEO_URL_ANALYSIS_PROVIDER" value=""/>
+        <env name="AI_VIDEO_URL_ANALYSIS_FALLBACK_MODEL" value=""/>
+        <env name="GEMINI_MODEL_ANALYSIS" value=""/>
+        <env name="DATA_PORTABILITY_ENABLED" value="false"/>
+        <!-- Rendu des clips : les tests existants vérifient le moteur FFmpeg seul (repli) ; les tests
+             de composition Remotion l'activent explicitement (rendu réel, plus lent). -->
+        <env name="CLIPPER_COMPOSER" value="ffmpeg"/>
+        <!-- Les tests créent volontairement des projets identiques à la suite ; la protection contre les
+             doubles envois est vérifiée par ClipperCreateDedupeTest, qui l'active explicitement. -->
+        <env name="CLIPPER_CREATE_DEDUPE_SECONDS" value="0"/>
+        <env name="CLIPPER_YTDLP_ENABLED" value="false"/>
     </php>
 </phpunit>

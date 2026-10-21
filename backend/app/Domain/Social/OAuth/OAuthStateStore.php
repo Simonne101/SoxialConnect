@@ -18,8 +18,11 @@ final class OAuthStateStore
 
     public function __construct(private readonly Cache $cache) {}
 
-    /** @return array{state: string, verifier: string} */
-    public function issue(User $user, string $provider): array
+    /**
+     * @param  array<string, string>  $context  données serveur rendues au retour (ex. projet concerné), jamais exposées
+     * @return array{state: string, verifier: string}
+     */
+    public function issue(User $user, string $provider, array $context = []): array
     {
         $state = Str::random(64);
         $verifier = Str::random(96); // PKCE : 43 à 128 caractères [A-Za-z0-9-._~]
@@ -27,6 +30,7 @@ final class OAuthStateStore
             'user_id' => $user->getKey(),
             'provider' => $provider,
             'verifier' => $verifier,
+            'context' => $context,
         ], self::TTL_SECONDS);
 
         return ['state' => $state, 'verifier' => $verifier];
@@ -38,6 +42,16 @@ final class OAuthStateStore
      */
     public function consume(?string $state, string $provider, User $user): ?string
     {
+        return $this->consumeWithContext($state, $provider, $user)['verifier'] ?? null;
+    }
+
+    /**
+     * Comme consume(), avec le contexte enregistré à l'émission.
+     *
+     * @return array{verifier: string, context: array<string, string>}|null
+     */
+    public function consumeWithContext(?string $state, string $provider, User $user): ?array
+    {
         if (! is_string($state) || strlen($state) !== 64) {
             return null;
         }
@@ -46,7 +60,7 @@ final class OAuthStateStore
             return null;
         }
 
-        return (string) $payload['verifier'];
+        return ['verifier' => (string) $payload['verifier'], 'context' => (array) ($payload['context'] ?? [])];
     }
 
     private function key(string $state): string

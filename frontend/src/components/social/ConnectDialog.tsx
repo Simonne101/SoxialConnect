@@ -13,7 +13,8 @@ import {
 import { useConnectAccount, useStartOAuth } from "@/hooks/queries/social"
 import { FeatureUnavailableError } from "@/lib/features"
 import { apiErrorMessage } from "@/lib/http"
-import { supportsOAuth } from "@/services/socialAccounts"
+import { supportsOAuth, supportsTelegramLink } from "@/services/socialAccounts"
+import { TelegramConnectDialog } from "./TelegramConnectDialog"
 import { PLATFORMS } from "@/lib/platforms"
 import type { SocialAccount } from "@/types"
 
@@ -25,7 +26,19 @@ import type { SocialAccount } from "@/types"
  * - Démonstration (sans backend) : connexion simulée. Autres réseaux : refus explicite.
  * Aucun token ne transite par le navigateur.
  */
-export function ConnectDialog({ account, onOpenChange }: { account: SocialAccount | null; onOpenChange: (o: boolean) => void }) {
+/**
+ * Ajout d'un compte supplémentaire d'un réseau déjà connecté : comment choisir l'AUTRE compte sur la page
+ * d'autorisation officielle (SoxialConnect ne peut pas forcer ce choix). Un compte déjà connecté qui
+ * revient est mis à jour, jamais remplacé par un autre.
+ */
+const ADD_ANOTHER_HINT: Partial<Record<SocialAccount["platform"], string>> = {
+  youtube: "Google vous demandera de choisir le compte Google, puis la chaîne (y compris une chaîne de marque) : choisissez celle qui n'est pas encore connectée.",
+  linkedin: "LinkedIn connecte le profil ouvert dans votre navigateur : déconnectez-vous de linkedin.com (ou utilisez une fenêtre de navigation privée), puis connectez-vous avec l'autre profil.",
+  x: "X connecte le compte ouvert dans votre navigateur : changez de compte sur x.com (ou utilisez une fenêtre de navigation privée) avant de continuer.",
+  tiktok: "TikTok connecte le compte ouvert dans votre navigateur : changez de compte sur tiktok.com (ou utilisez une fenêtre de navigation privée) avant de continuer.",
+}
+
+export function ConnectDialog({ account, addingAnother = false, onOpenChange }: { account: SocialAccount | null; addingAnother?: boolean; onOpenChange: (o: boolean) => void }) {
   const demoConnect = useConnectAccount()
   const oauth = useStartOAuth()
   const real = account ? supportsOAuth(account.platform) : false
@@ -42,6 +55,9 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
     }
     onOpenChange(o)
   }
+
+  // Telegram (backend branché) : liaison par le bot SoxialConnect, sans OAuth.
+  if (account && supportsTelegramLink(account.platform)) return <TelegramConnectDialog account={account} onOpenChange={onOpenChange} />
 
   return (
     <Dialog open={Boolean(account)} onOpenChange={close}>
@@ -75,6 +91,13 @@ export function ConnectDialog({ account, onOpenChange }: { account: SocialAccoun
                   <p className="text-sm font-semibold text-ink">Ce qu'il vous faut</p>
                   <p className="mt-1 text-sm text-ink-soft">{cfg.accountRequirement}</p>
                 </div>
+                {addingAnother && (
+                  <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-4">
+                    <p className="text-sm font-semibold text-ink">Ajouter un autre compte {cfg.name}</p>
+                    <p className="mt-1 text-sm text-ink-soft">{ADD_ANOTHER_HINT[account.platform] ?? `Sur la page ${cfg.name}, connectez-vous avec le compte à ajouter.`}</p>
+                    <p className="mt-1 text-xs text-ink-muted">Vos comptes déjà connectés sont conservés ; si vous choisissez l'un d'eux, il est simplement mis à jour.</p>
+                  </div>
+                )}
                 <div>
                   <p className="flex items-center gap-2 text-sm font-semibold text-ink">
                     <KeyRound className="size-4 text-brand-500" aria-hidden="true" /> Autorisations demandées

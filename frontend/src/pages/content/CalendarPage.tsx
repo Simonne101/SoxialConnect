@@ -17,6 +17,7 @@ import { PlatformIcon } from "@/components/brand/PlatformIcon"
 import { DayView, ListView, MonthView, WeekView } from "@/components/content/calendar/CalendarViews"
 import { postTitle, postsOn } from "@/components/content/postUtils"
 import { PostDetailDialog } from "@/components/content/PostDetailDialog"
+import { useOpenedPost } from "@/components/content/useOpenedPost"
 import { usePostActions } from "@/components/content/usePostActions"
 import { FilterTabs } from "@/components/shared/FilterTabs"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -46,7 +47,8 @@ export default function CalendarPage() {
   const [selected, setSelected] = useState(() => new Date())
   const [platform, setPlatform] = useState<PlatformKey | "all">("all")
   const [status, setStatus] = useState<PostStatus | "all">("all")
-  const [detail, setDetail] = useState<Post | null>(null)
+  const openedPost = useOpenedPost()
+  const [detail, setDetail] = useState<Post | null>(openedPost)
   const now = useNow()
   const { actions, dialogs } = usePostActions()
   // Vignettes utilisées seulement par la fenêtre de détail.

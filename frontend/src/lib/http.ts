@@ -27,13 +27,56 @@ export class ApiError extends Error {
 }
 
 /**
+ * Réponse qui ne vient pas de l'API (passerelle, tunnel de développement, proxy, serveur arrêté) :
+ * corps non JSON. Son message est construit ici et ne contient aucune donnée du serveur.
+ */
+export class GatewayError extends ApiError {}
+
+/**
+ * Réponse non JSON : message explicite (méthode et chemin compris) au lieu d'un « Une erreur est
+ * survenue » générique, et détails techniques dans la console pour identifier QUI a répondu
+ * (Laravel ajoute toujours X-Request-Id ; un proxy, un tunnel ou un autre serveur, jamais).
+ */
+function gatewayError(
+  status: number,
+  raw: string,
+  method: string,
+  requestedPath: string,
+  finalUrl: string,
+  headers: { get(name: string): string | null },
+): GatewayError {
+  const stripOrigin = (u: string) => u.replace(/^https?:\/\/[^/]+/, "").split("?")[0]
+  const path = stripOrigin(requestedPath)
+  const finalPath = finalUrl ? stripOrigin(finalUrl) : path
+  const ngrok = raw.match(/ERR_NGROK_\d+/)?.[0]
+  console.error("[SoxialConnect] Réponse non JSON reçue à la place de l'API", {
+    method,
+    requested: path,
+    finalUrl: finalUrl || null,
+    redirected: finalPath !== path,
+    status,
+    contentType: headers.get("content-type"),
+    server: headers.get("server") ?? headers.get("x-powered-by"),
+    laravel: headers.get("x-request-id") !== null,
+    body: raw.slice(0, 200),
+  })
+  // Chemin DEMANDÉ (et non l'URL finale) ; une redirection est signalée explicitement.
+  const where = finalPath !== path ? `${method} ${path}, redirigée vers ${finalPath}` : `${method} ${path}`
+  if (ngrok) return new GatewayError(status, `Le tunnel de développement n'a pas pu joindre le serveur (${ngrok}, ${where}). Réessayez dans un instant.`)
+  if (status >= 500) return new GatewayError(status, `Le serveur est momentanément injoignable (erreur ${status}, ${where}). Réessayez dans un instant.`)
+  return new GatewayError(status, `Réponse inattendue du serveur (erreur ${status}, ${where}). Réessayez dans un instant.`)
+}
+
+/**
  * Message affichable pour une erreur d'API : le premier message de validation (422), le message
- * métier du serveur (401, 403, 404, 409, 419, 429, réseau), sinon le message de repli.
+ * métier du serveur (401, 403, 404, 409, 413, 419, 429, 507, réseau), sinon le message de repli.
  */
 export function apiErrorMessage(error: unknown, fallback = "Une erreur est survenue. Réessayez."): string {
   if (!(error instanceof ApiError)) return fallback
+  if (error instanceof GatewayError) return error.message
   if (error.status === 422) return Object.values(error.errors)[0]?.[0] ?? error.message
-  if (error.status >= 500) return fallback
+  // 507 : espace disque du serveur insuffisant (quotas, ADR-071) — message métier explicite, pas une panne.
+  if (error.status >= 500 && error.status !== 507) return fallback
   return error.message || fallback
 }
 
@@ -93,16 +136,18 @@ async function request<T>(method: Method, path: string, body?: unknown, retried 
 
   if (response.status === 204) return null
 
+  const raw = await response.text().catch(() => "")
   let json: unknown = null
   try {
-    json = await response.json()
+    json = raw ? JSON.parse(raw) : null
   } catch {
     json = null
   }
 
   if (!response.ok) {
     const payload = (json ?? {}) as { message?: string; errors?: Record<string, string[]> }
-    throw new ApiError(response.status, payload.message ?? "Une erreur est survenue.", payload.errors ?? {})
+    if (typeof payload.message !== "string") throw gatewayError(response.status, raw, method, `/api/v1${path}`, response.url, response.headers)
+    throw new ApiError(response.status, payload.message, payload.errors ?? {})
   }
 
   return json as ApiEnvelope<T>
@@ -143,7 +188,9 @@ async function upload<T>(path: string, form: FormData, onProgress?: (percent: nu
       }
       if (xhr.status < 200 || xhr.status >= 300) {
         const payload = (json ?? {}) as { message?: string; errors?: Record<string, string[]> }
-        reject(new ApiError(xhr.status, payload.message ?? "L'envoi a échoué.", payload.errors ?? {}))
+        reject(typeof payload.message === "string"
+          ? new ApiError(xhr.status, payload.message, payload.errors ?? {})
+          : gatewayError(xhr.status, xhr.responseText ?? "", "POST", `/api/v1${path}`, xhr.responseURL, { get: (name) => xhr.getResponseHeader(name) }))
         return
       }
       resolve(json as ApiEnvelope<T>)

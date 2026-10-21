@@ -218,7 +218,7 @@ export default function AIAssistantPage() {
                 </span>
                 <h2 className="mt-4 text-lg font-bold">Comment puis-je vous aider ?</h2>
                 <p className="mt-1 text-sm text-ink-muted">Choisissez une action ci-dessus, puis décrivez votre besoin. Exemples :</p>
-                <ul className="mt-5 grid w-full gap-2 sm:grid-cols-2">
+                <ul className="mt-5 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
                   {AI_TASKS.slice(0, 4).map((t) => (
                     <li key={t.task}>
                       <button type="button" onClick={() => { setTask(t.task); submit(t.example, t.task) }} className="h-full w-full rounded-xl border border-border p-3 text-left text-sm hover:border-brand-200 hover:bg-brand-50/50">

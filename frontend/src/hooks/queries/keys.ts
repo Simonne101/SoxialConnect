@@ -1,4 +1,4 @@
-import type { AnalyticsPeriod, MediaFilters, PostFilters } from "@/types"
+import type { AnalyticsPeriod, LiveAnalyticsFilters, MediaFilters, PostFilters } from "@/types"
 
 // Fabrique centralisée des clés de requêtes TanStack Query.
 export const qk = {
@@ -18,6 +18,7 @@ export const qk = {
     tags: ["media", "tags"] as const,
   },
   analytics: (p: AnalyticsPeriod) => ["analytics", p] as const,
+  liveAnalytics: (f: LiveAnalyticsFilters) => ["analytics", "live", f.from, f.to, f.platform ?? "all"] as const,
   dashboard: ["dashboard"] as const,
   dashboardRange: (r: string) => ["dashboard", r] as const,
   activity: ["activity"] as const,
@@ -30,5 +31,14 @@ export const qk = {
     all: ["video-projects"] as const,
     detail: (id: string) => ["video-projects", id] as const,
   },
+  studio: {
+    projects: ["studio", "projects"] as const,
+    project: (id: string) => ["studio", "project", id] as const,
+  },
+  clipper: {
+    projects: ["clipper", "projects"] as const,
+    project: (id: string) => ["clipper", "project", id] as const,
+  },
+  aiImages: ["ai-images"] as const,
   conversations: ["ai-conversations"] as const,
 }

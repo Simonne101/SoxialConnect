@@ -36,6 +36,15 @@ API (publier, réessayer, annuler)      Planificateur (chaque minute)
 Le statut du post est toujours **agrégé** à partir de ses variantes (`PostStatusAggregator`).
 Tant qu'une variante est en file ou en cours d'envoi, le post est « En cours » (`processing`).
 
+**Points d'entrée côté interface : un seul parcours, le Composer** (`/content/create`). Médias
+(barre de sélection ou aperçu → « Publier sur les réseaux ») et Clipper (« Publier » / « Planifier »
+sur un clip prêt) y arrivent avec `state.mediaIds` : la vidéo de la médiathèque est **référencée**
+(`post_media`), jamais copiée. Avant toute publication ou programmation, un **récapitulatif**
+(réseaux et comptes, média, texte, visibilité réellement transmise) demande confirmation ; rien
+n'est enregistré avant. Après confirmation, la liste (ou le calendrier) s'ouvre sur le détail de
+la publication : état de chaque réseau, rafraîchi pendant l'envoi, « Réessayer » limité aux réseaux
+en échec (ADR-066).
+
 ## 2. Cycle de vie d'une variante
 
 ```
@@ -100,8 +109,17 @@ Statuts du post, dans l'ordre d'évaluation :
 - Les données du job sont `variantId`, `trigger`, `triggeredBy`, `expectedAttempts` (le jeton)
   et `cycleAttempt`. Il ne contient aucun contenu ni secret.
 
-Worker local : `php artisan queue:work redis --queue=publishing,default,media --sleep=1 --timeout=300`.
-Il est lancé par `npm run dev`. Après un changement de code : `php artisan queue:restart`.
+Worker de **développement** (lancé par `npm run dev`) :
+`php artisan queue:listen redis --queue=publishing,default,media --sleep=1 --timeout=300 --memory=256`.
+
+- Chaque job s'exécute dans un processus PHP neuf (`queue:work --once`). Une modification du
+  code ou du `.env` est donc prise en compte dès le job suivant, sans redémarrage.
+- `--timeout` est réellement appliqué, y compris sous Windows.
+- **Ne lancez pas `php artisan queue:restart` pendant `npm run dev`.** C'est inutile, et le
+  lanceur arrêterait tout SoxialConnect en voyant son worker s'arrêter.
+
+Worker de **production** : `queue:work` (ou Horizon), processus permanent, avec redémarrage
+contrôlé au déploiement (`php artisan queue:restart`).
 
 ## 5. Idempotence et historique
 
@@ -193,7 +211,18 @@ L'audit enregistre `POST_PUBLISH_REQUESTED`, `POST_PUBLISH_RETRIED`, `POST_PUBLI
 1. Laragon : MySQL et Redis démarrés.
 2. `cd backend && php artisan migrate` (colonnes du moteur : migration `2026_09_30_100000`).
 3. Depuis la racine : `npm run dev`. Cette commande démarre l'API, le **worker**
-   (`[worker]`), le **planificateur** (`[cron]`, `schedule:work`) et le site.
+   (`[worker]`), le **planificateur** (`[cron]`, `schedule:work`) et le site. Ctrl + C arrête tout
+   ce qu'elle a lancé.
+   - Si SoxialConnect tourne déjà, l'instance existante est réutilisée : rien n'est lancé en double.
+   - Les processus restés orphelins (fenêtre fermée, plantage) sont nettoyés au lancement suivant.
+     Seuls ceux de ce projet sont concernés : processus enregistrés dans
+     `backend/storage/framework/cache/dev-launcher.json`, ou serveurs reconnus à leur commande.
+     Jamais d'autres processus PHP de la machine.
+   - Autres commandes :
+     - `npm run dev:status` : état, en lecture seule ;
+     - `npm run dev:stop` : arrêt ;
+     - `npm run dev:restart` : arrêt puis redémarrage ;
+     - `npm run dev -- --no-browser` : démarrage sans ouvrir le navigateur.
 4. Vérifier les files : `php artisan queue:monitor redis:publishing,redis:default,redis:media`.
 
 **Windows sans `npm run dev`** (serveur ou poste sans terminal ouvert) :
@@ -219,6 +248,10 @@ L'audit enregistre `POST_PUBLISH_REQUESTED`, `POST_PUBLISH_RETRIED`, `POST_PUBLI
   lit dans la liste des publications et dans la fiche détail.
 - Le planificateur recherche au niveau du post (`posts.scheduled_at`). Les dates par variante
   différentes de celle du post ne sont pas encore proposées par le Composer.
+- Vidéo de la médiathèque : publiable sur YouTube (une seule vidéo), Telegram (MP4 ≤ 50 Mo) et
+  TikTok (si un compte est connecté). LinkedIn et X : texte seul (le Composer bloque, le serveur
+  refuse `MEDIA_NOT_SUPPORTED` sans appel). Facebook, Instagram, Pinterest, Threads : pas
+  d'adaptateur de publication (une variante y échouerait en `NOT_CONFIGURED`, rien n'est envoyé).
 
 ## 11. YouTube (premier connecteur réel)
 
@@ -293,9 +326,14 @@ l'autorisation est révoquée.
 - `selfDeclaredMadeForKids` : seulement si l'option est renseignée ;
 - `<` et `>` sont retirés, car YouTube les refuse.
 
-**`privacyStatus` est toujours `private`** pendant cette phase, quelle que soit l'option
-« Visibilité » du Composer. Rien n'est publié publiquement sans action manuelle dans YouTube
-Studio.
+**`privacyStatus` = option « Visibilité » du Composer** (`youtubeVisibility` : `public`,
+`unlisted` ou `private`, liste blanche stricte). Option absente ou invalide : `private` — jamais de
+publication publique implicite. La visibilité renvoyée par YouTube est comparée à la demande
+(`publication_attempts.response_excerpt` : `privacy_requested`, `privacy_status`,
+`privacy_mismatch`). Un écart reste une **réussite** (la vidéo existe), mais il est journalisé
+(`publishing.youtube_visibility_mismatch`) et affiché comme avertissement dans « Historique des
+envois » (`warnings`, code `VISIBILITY_MISMATCH`). Cause connue : tant que le projet Google Cloud
+n'est pas audité, YouTube peut limiter les vidéos envoyées par l'API à « Privée » (ADR-065).
 
 **Erreurs.** Le moteur Phase 1 décide des relances ; il n'y a pas de logique de relance propre à
 YouTube.
@@ -359,7 +397,8 @@ l'application, avec le cookie de session.
 5. Dans la fiche de la publication :
    - la tentative doit être « Réussie » et le statut « Publiée » ;
    - `publication_attempts.external_post_id` contient le `videoId`.
-6. Vérifiez la vidéo **privée** dans YouTube Studio.
+6. Vérifiez dans YouTube Studio que la visibilité correspond au choix du Composer (sinon, l'historique
+   des envois affiche un avertissement).
 
 **Déconnexion** : Réseaux sociaux → YouTube → **Gérer → Déconnecter**. L'accès est révoqué chez
 Google, puis les tokens sont effacés.
@@ -373,4 +412,311 @@ Google, puis les tokens sont effacés.
 | Message « pas encore configurée » | Variables `YOUTUBE_*` vides, ou configuration en cache (`php artisan config:clear`). |
 | « Demande expirée » (`INVALID_STATE`) | Plus de 10 minutes sur Google, onglet rejoué, ou connexion ouverte avec un autre utilisateur SoxialConnect. |
 | `QUOTA_EXCEEDED` | Quota quotidien du projet atteint (10 000 unités par défaut ; un envoi en coûte environ 1 600). Réessayez le lendemain, ou demandez une extension. |
-| Vidéo verrouillée « privée » | Normal : c'est le choix de cette phase. Tant que le projet Google n'est pas audité, YouTube force aussi les vidéos en privé. |
+| Vidéo « privée » alors que « Publique » était choisie (avertissement `VISIBILITY_MISMATCH`) | Projet Google Cloud non audité : YouTube limite les vidéos envoyées par l'API à « Privée ». Demander l'audit de l'API YouTube Data, ou changer la visibilité dans YouTube Studio si elle n'est pas verrouillée. |
+
+## 13. Telegram (Bot API, bot partagé)
+
+Un seul bot pour toute la plateforme. Son token reste dans `backend/.env` (`TELEGRAM_BOT_TOKEN`) :
+jamais en base, jamais dans le frontend, jamais dans les journaux. Il figure dans l'URL de chaque
+appel ; `TelegramBotClient` ne journalise donc jamais cette URL et ne chaîne jamais l'exception
+d'origine. Aucun token utilisateur, aucun OAuth.
+
+### Liaison d'une chaîne ou d'un groupe
+
+1. Réseaux sociaux › Telegram › Connecter : `POST /api/v1/social/telegram/link` renvoie
+   `https://t.me/<bot>?start=<code>`. Le code fait 48 caractères, il est à usage unique, valable
+   10 minutes et lié à l'utilisateur ; il est stocké en cache sous son empreinte SHA-256.
+2. Dans Telegram, « Démarrer » envoie `/start <code>`. Une session de liaison est alors ouverte
+   pour cette personne Telegram (10 minutes). Le bot répond avec deux boutons officiels
+   (`KeyboardButtonRequestChat`) : « Choisir une chaîne » et « Choisir un groupe ».
+   - Chaîne : la personne doit en être administratrice avec le droit de publier, et le bot y est
+     ajouté comme administrateur avec `can_post_messages`.
+   - Groupe : la personne doit en être administratrice, et le bot y est ajouté comme administrateur.
+3. Telegram envoie le message `chat_shared`. Le serveur vérifie lui-même, par `getChat` et
+   `getChatMember`, le type de conversation, les droits réels du bot et le statut de la personne
+   (propriétaire ou administratrice), puis `ConnectTelegramChat` crée ou réactive la destination.
+   Celle-ci est enregistrée dans `social_accounts` :
+   - `external_account_id` = `chat_id` ;
+   - `account_type` = `channel` ou `group` ;
+   - `display_name` = titre, `username` = `@nom` si la conversation est publique.
+4. La fenêtre de SoxialConnect relit la liste des comptes toutes les 3 secondes et affiche le résultat.
+
+Un utilisateur peut relier plusieurs chaînes et groupes. Dans le Composer, il en choisit un par publication.
+
+### Webhook
+
+`POST /api/v1/webhooks/telegram` :
+
+1. Contrôle de l'en-tête `X-Telegram-Bot-Api-Secret-Token`, comparé en temps constant à
+   `TELEGRAM_WEBHOOK_SECRET`. Une requête sans secret valide est refusée (403) ; sans secret
+   configuré, tout est refusé.
+2. Dédoublonnage par `update_id` (`webhook_events`).
+3. Réponse 200 immédiate, puis traitement en file `default` (`ProcessTelegramUpdate`).
+
+Seules les données utiles sont gardées ; aucun contenu de conversation n'est conservé.
+Mises à jour traitées :
+
+- `message` : `/start`, `chat_shared`, et la migration d'un groupe en supergroupe (nouvel identifiant) ;
+- `my_chat_member` : bot retiré ou rétrogradé (destination « à reconnecter »), puis rétabli
+  (destination de nouveau connectée).
+
+Une destination déconnectée par l'utilisateur n'est jamais réactivée automatiquement.
+
+### Publication (`TelegramPublisher`, synchrone)
+
+| Contenu | Méthode | Limites vérifiées avant tout envoi |
+|---|---|---|
+| Texte seul | `sendMessage` (texte brut, sans `parse_mode`) | 4096 caractères (unités UTF-16) |
+| Une image JPEG, PNG ou WebP | `sendPhoto` | légende ≤ 1024, 10 Mo |
+| Un GIF | `sendAnimation` | légende ≤ 1024, 50 Mo |
+| Une vidéo | `sendVideo` | MP4 uniquement, légende ≤ 1024, 50 Mo |
+| 2 à 10 images ou vidéos | `sendMediaGroup` (légende sur le premier élément) | 10 éléments au plus, sans GIF |
+
+- Les fichiers sont envoyés en multipart depuis le stockage privé : aucune URL publique.
+- Le nom d'origine du fichier n'est pas transmis.
+- Les hashtags choisis sont ajoutés en fin de texte s'ils n'y figurent pas déjà.
+- Succès : `external_post_id` = `message_id` (le premier message pour un album).
+- Lien du message :
+  - chaîne ou groupe public : `https://t.me/<nom>/<id>` ;
+  - privé (`-100…`) : `https://t.me/c/<id interne>/<id>` ;
+  - groupe simple : pas de lien.
+
+Classement des erreurs :
+
+| Erreur Telegram | Résultat |
+|---|---|
+| 429 (`retry_after`), connexion impossible avant l'envoi | Temporaire (nouvel essai automatique) |
+| 403 (bot retiré), 400 « not enough rights », « chat not found » | Définitive `PERMISSION_DENIED` ; destination « à reconnecter » |
+| 400 avec `migrate_to_chat_id` | Nouvel identifiant enregistré, puis nouvel essai automatique |
+| 400 texte trop long, média refusé, 413, 401 (token invalide) | Définitive |
+| 5xx, délai dépassé pendant l'envoi | Résultat inconnu : jamais relancé sans confirmation (Telegram n'a pas de clé d'idempotence) |
+
+Débit : environ 1 message par seconde par conversation et 20 par minute dans un groupe. Un
+dépassement renvoie 429 et donne lieu à un nouvel essai automatique. Programmation : assurée par
+SoxialConnect, car les bots n'ont pas de publication programmée.
+
+Déconnexion : seule la liaison est désactivée (statut `revoked`), et le bot reste dans la conversation.
+Une reconnexion réactive la même ligne.
+
+### Configuration
+
+```dotenv
+TELEGRAM_BOT_TOKEN=          # fourni par @BotFather (secret)
+TELEGRAM_BOT_USERNAME=       # nom du bot, sans @
+TELEGRAM_WEBHOOK_SECRET=     # 32 à 64 caractères [A-Za-z0-9_-]
+TELEGRAM_WEBHOOK_URL=https://<domaine-du-tunnel>/api/v1/webhooks/telegram
+```
+
+En local, le tunnel HTTPS mène à Vite (5173), qui relaie `/api` vers Laravel (8000). Une fois les
+variables renseignées, redémarrez `npm run dev` (le worker relit sa configuration), puis :
+
+```bash
+php artisan telegram:webhook --set   # enregistre l'URL et le secret auprès de Telegram
+php artisan telegram:webhook         # état : bot, URL, mises à jour en attente, dernière erreur
+```
+
+Si l'adresse du tunnel change, mettez à jour `TELEGRAM_WEBHOOK_URL`, puis relancez `--set`.
+
+## 14. LinkedIn (profil personnel, texte)
+
+Produits LinkedIn activés sur l'application : **Sign In with LinkedIn using OpenID Connect** et
+**Share on LinkedIn**. Sources officielles (learn.microsoft.com/linkedin) :
+`shared/authentication/authorization-code-flow`,
+`consumer/integrations/self-serve/sign-in-with-linkedin-v2` et
+`consumer/integrations/self-serve/share-on-linkedin`.
+
+### Variables d'environnement
+
+```dotenv
+LINKEDIN_CLIENT_ID=
+LINKEDIN_CLIENT_SECRET=      # secret : uniquement dans .env
+LINKEDIN_REDIRECT_URI=https://<domaine-du-tunnel>/oauth/linkedin/callback
+```
+
+L'URI doit être **identique** à celle déclarée dans le Developer Portal (onglet Auth), en HTTPS. En
+local, le tunnel mène à Vite (5173), qui relaie `/oauth` vers Laravel.
+
+### Connexion (OAuth 2.0 « Authorization Code »)
+
+1. Réseaux sociaux › LinkedIn › Connecter : `POST /api/v1/social/linkedin/connect`.
+   - Le serveur crée un `state` (`OAuthStateStore` : usage unique, 10 minutes, lié à l'utilisateur).
+   - Il renvoie `https://www.linkedin.com/oauth/v2/authorization`, avec les scopes
+     `openid profile email w_member_social`. Aucune permission d'organisation n'est demandée.
+2. Retour sur `GET /oauth/linkedin/callback` (`LinkedInCallbackController`, route web avec session),
+   qui traite dans l'ordre :
+   1. utilisateur connecté ;
+   2. `state` ;
+   3. erreur LinkedIn (`user_cancelled_login` et `user_cancelled_authorize` donnent `ACCESS_DENIED`) ;
+   4. échange du code (`POST /oauth/v2/accessToken`, en formulaire) ;
+   5. vérification de la permission `w_member_social` ;
+   6. identité (`GET https://api.linkedin.com/v2/userinfo`).
+3. `ConnectLinkedInAccount` crée ou met à jour le compte :
+   - `external_account_id` = `sub`, et l'auteur des publications est `urn:li:person:{sub}` ;
+   - `account_type` = `profile` ;
+   - `display_name` = nom, `username` = e-mail (optionnel) ;
+   - un seul token actif, chiffré ;
+   - les permissions réellement accordées.
+4. Retour vers `/social-accounts?oauth=linkedin&status=connected`, ou `status=error&code=…`.
+
+**Token :** l'accès dure **60 jours**. Il n'y a pas de refresh token : les refresh tokens
+programmatiques sont réservés à certains partenaires LinkedIn. À l'expiration, ou si LinkedIn
+refuse le token (401), le compte passe « à reconnecter ». L'utilisateur refait alors la connexion,
+et l'écran d'autorisation est souvent sauté s'il est toujours connecté à LinkedIn.
+
+**Déconnexion :** les tokens sont effacés localement. Aucun endpoint de révocation n'est utilisé ;
+l'utilisateur peut retirer l'accès depuis ses paramètres LinkedIn.
+
+### Publication (`LinkedInPublisher`)
+
+La V1 publie du **texte seul** via `POST https://api.linkedin.com/v2/ugcPosts`, avec l'en-tête
+`X-Restli-Protocol-Version: 2.0.0` :
+
+- `author` : `urn:li:person:{sub}` ;
+- `lifecycleState` : `PUBLISHED` ;
+- `shareCommentary` : le texte, suivi des hashtags choisis ;
+- `shareMediaCategory` : `NONE` ;
+- visibilité : `PUBLIC`.
+
+Succès : `201 Created`. L'identifiant du post vient de l'en-tête `X-RestLi-Id` (`urn:li:share:…`) ;
+le lien est `https://www.linkedin.com/feed/update/{urn}/`.
+
+| Réponse LinkedIn | Résultat |
+|---|---|
+| 401 | Définitif `TOKEN_INVALID` ; compte « à reconnecter » |
+| 403 | Définitif `PERMISSION_DENIED` |
+| 422 « duplicate » | Définitif `DUPLICATE_CONTENT` |
+| 400, autre 422 | Définitif `INVALID_REQUEST` |
+| 429 | Temporaire (nouvel essai automatique). Quota documenté : 150 requêtes par membre et par jour |
+| 5xx, délai dépassé pendant l'envoi | Résultat inconnu : jamais relancé sans confirmation (pas de clé d'idempotence) |
+| Connexion impossible avant l'envoi | Temporaire |
+
+Le jeton n'apparaît jamais dans les journaux, les tentatives ou les réponses de l'API : il est
+envoyé en en-tête, jamais dans une URL.
+
+### Limites actuelles
+
+- **Images et vidéos :** refusées avant tout envoi (`MEDIA_NOT_SUPPORTED`), et bloquées aussi dans le
+  Composer. Le flux d'upload documenté (`assets?action=registerUpload`, envoi du fichier, puis post)
+  sera intégré après vérification. La documentation parle d'un POST vers `uploadUrl` mais donne un
+  exemple en PUT, et ne dit rien de l'état de traitement de l'image.
+- **Pages d'entreprise (`organization`) :** non prises en charge. Elles exigent l'accès
+  « Community Management API », soumis à validation par LinkedIn.
+- **API utilisée :** `ugcPosts` est l'API documentée pour le produit « Share on LinkedIn ». LinkedIn
+  propose aussi la Posts API, versionnée (`/rest/posts`) : une migration sera à envisager si
+  `ugcPosts` est retirée.
+
+### Test réel
+
+1. Ouvrez SoxialConnect **via l'adresse ngrok** (le cookie de session doit être présent au retour
+   du callback).
+2. Ouvrez Réseaux sociaux › LinkedIn › Connecter, autorisez l'application, puis vérifiez que le
+   profil apparaît.
+3. Dans le Composer, cochez LinkedIn, vérifiez le compte, saisissez un **texte** sans média, puis
+   « Publier maintenant ».
+4. Vérifiez le statut « Publié » et ouvrez le lien vers le post sur LinkedIn.
+
+## 15. X (compte utilisateur, texte)
+
+Sources officielles (docs.x.com) : `resources/fundamentals/authentication/oauth-2-0/authorization-code`,
+`resources/fundamentals/authentication/oauth-2-0/user-access-token` et `x-api/users/get-my-user`.
+
+### Variables d'environnement
+
+```dotenv
+X_CLIENT_ID=
+X_CLIENT_SECRET=      # secret : uniquement dans .env
+X_REDIRECT_URI=https://<domaine-du-tunnel>/oauth/x/callback
+```
+
+Dans la console développeur X (User authentication settings) :
+
+- type d'application **Web App, Automated App or Bot** (client confidentiel) ;
+- permissions **Read and write** ;
+- Callback URI **identique** à `X_REDIRECT_URI`. X refuse `localhost` : en local, on passe par le
+  tunnel, qui mène à Vite (5173), qui relaie `/oauth` vers Laravel.
+
+L'API X est payante (facturation à l'usage) : sans offre ni crédits sur le compte développeur, X
+répond 402 ou 403 et la connexion échoue avec `API_ACCESS_DENIED`.
+
+### Connexion (OAuth 2.0 « Authorization Code » + PKCE)
+
+1. Réseaux sociaux › X › Connecter : `POST /api/v1/social/x/connect`.
+   - Le serveur crée un `state` et un vérificateur PKCE (`OAuthStateStore` : usage unique,
+     10 minutes, lié à l'utilisateur ; le vérificateur reste côté serveur).
+   - Il renvoie `https://x.com/i/oauth2/authorize` avec `code_challenge` (S256) et les scopes
+     `users.read tweet.read tweet.write offline.access`.
+2. Retour sur `GET /oauth/x/callback` (`XCallbackController`, route web avec session), qui traite
+   dans l'ordre :
+   1. utilisateur connecté ;
+   2. `state` (restitue le vérificateur PKCE) ;
+   3. erreur X (`access_denied` donne `ACCESS_DENIED`) ;
+   4. échange du code (`POST https://api.x.com/2/oauth2/token`, formulaire, client en HTTP Basic,
+      avec `code_verifier`) ;
+   5. vérification de la permission `tweet.write` ;
+   6. identité (`GET https://api.x.com/2/users/me?user.fields=profile_image_url`).
+3. `ConnectXAccount` crée ou met à jour le compte :
+   - `external_account_id` = identifiant X ;
+   - `account_type` = `profile` ;
+   - `display_name` = nom, `username` = `@identifiant`, photo dans `metadata.picture_url` ;
+   - un seul token actif, chiffré ;
+   - les permissions réellement accordées.
+4. Retour vers `/social-accounts?oauth=x&status=connected`, ou `status=error&code=…`.
+
+**Token (`XTokenManager`) :** l'accès dure **2 heures**. Le refresh token (scope `offline.access`)
+est à usage unique : à chaque renouvellement, X en renvoie un nouveau, qui remplace l'ancien dans
+la même écriture que le nouvel access token. Le renouvellement se fait sous verrou par compte, 10
+minutes avant l'expiration. Refresh token absent ou refusé : compte « à reconnecter », sans boucle.
+
+**Déconnexion :** révocation au mieux du refresh token puis de l'access token
+(`POST https://api.x.com/2/oauth2/revoke`), puis effacement des tokens locaux.
+
+### Publication (`XPublisher`)
+
+La V1 publie du **texte seul** via `POST https://api.x.com/2/tweets` (« Create Post »), corps
+`{ "text": … }`, avec le jeton de l'utilisateur (`Authorization: Bearer`, scope `tweet.write`)
+fourni par `XTokenManager`. Celui-ci le renouvelle si besoin ; l'adaptateur ne gère ni OAuth, ni
+refresh, ni chiffrement. Le texte envoyé est celui de la variante, suivi des hashtags choisis qui
+n'y figurent pas déjà. Publication immédiate et programmée passent par le moteur commun
+(`PublishPostVariantJob`, file `publishing`, `publishing:dispatch-due`).
+
+Succès : `201 Created`, `{ "data": { "id", "text" } }`. L'identifiant (`data.id`) est enregistré
+dans `external_post_id` ; le lien est `https://x.com/i/web/status/{id}` (lien permanent officiel,
+indépendant de l'@identifiant). Sans identifiant valide dans la réponse : résultat inconnu.
+
+**Longueur :** 280 caractères **selon le décompte de X** (NFC ; emoji et caractères CJK = 2 ;
+chaque URL = 23), calculé par `XPostLength` et par le Composer (`frontend/src/lib/xText.ts`). Au-delà,
+refus `TEXT_TOO_LONG` avant tout envoi : le texte n'est jamais tronqué. Les posts longs des
+abonnés X Premium ne sont pas gérés.
+
+| Réponse X | Résultat |
+|---|---|
+| Médias joints | Définitif `MEDIA_NOT_SUPPORTED`, aucun appel |
+| Texte vide / trop long | Définitif `EMPTY_CONTENT` / `TEXT_TOO_LONG`, aucun appel |
+| Refresh refusé par X | Définitif `TOKEN_REVOKED` ; compte « à reconnecter », tokens conservés |
+| 400 | Définitif `INVALID_REQUEST` |
+| 401 | Définitif `TOKEN_INVALID` ; compte « à reconnecter » |
+| 402, 403 `client-not-enrolled` | Définitif `API_ACCESS_DENIED` (offre ou crédits du compte développeur X) |
+| 403 « duplicate content » | Définitif `DUPLICATE_CONTENT` |
+| Autre 403 | Définitif `PERMISSION_DENIED` |
+| 429 | Temporaire `RATE_LIMITED` : nouvel essai selon `publishing.backoff` (60 s, 300 s), 3 tentatives au plus ; l'heure `x-rate-limit-reset` est conservée dans l'historique |
+| Autre 4xx (409…) | Définitif `HTTP_ERROR` |
+| 5xx, délai dépassé pendant l'envoi, réponse illisible | Résultat inconnu : jamais relancé sans confirmation (pas de clé d'idempotence) |
+| Connexion impossible avant l'envoi | Temporaire `NETWORK_ERROR` |
+
+L'historique (`publication_attempts.response_excerpt`) ne garde que `http_status`, `title`, `type`,
+`reason` et `detail` (tronqué) : jamais de jeton, ni l'identifiant client renvoyé par certaines erreurs.
+
+### Limites actuelles
+
+- **Images, vidéos, GIF :** refusés avant tout envoi et bloqués dans le Composer. Ils exigeront
+  l'envoi de médias (`/2/media/upload`) et le scope `media.write`, donc une reconnexion des comptes.
+- **Fils, sondages, réponses, citations :** non pris en charge.
+- **Limite de débit :** le moteur applique son propre backoff ; il ne patiente pas jusqu'à
+  `x-rate-limit-reset` si la fenêtre X est plus longue que les 3 tentatives automatiques.
+
+### Test réel
+
+1. Corrigez `X_REDIRECT_URI` dans `.env`, puis ouvrez SoxialConnect **via l'adresse ngrok**.
+2. Réseaux sociaux › X › Connecter, autorisez l'application, vérifiez le compte.
+3. Dans le Composer, cochez X, saisissez un **texte** sans média, puis « Publier maintenant ».
+4. Vérifiez le statut « Publié » et ouvrez le lien vers le post.

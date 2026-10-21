@@ -33,11 +33,11 @@ export function AlertsBanner({ accounts, failedPosts }: { accounts: SocialAccoun
       <h2 id="alerts-title" className="flex items-center gap-2 text-sm font-semibold text-warning-700">
         <TriangleAlert className="size-4" aria-hidden="true" /> Actions requises ({problems.length + failedPosts.length})
       </h2>
-      <ul className="mt-2.5 grid gap-2 lg:grid-cols-2">
+      <ul className="mt-2.5 grid grid-cols-1 gap-2 lg:grid-cols-2">
         {problems.map((a) => (
           <li key={a.id} className="flex flex-col gap-2 rounded-xl bg-card px-3 py-2 sm:flex-row sm:items-center">
             <PlatformIcon platform={a.platform} size="sm" />
-            <p className="flex-1 text-sm text-ink-soft">
+            <p className="min-w-0 flex-1 text-sm text-ink-soft">
               <span className="font-semibold text-ink">{PLATFORMS[a.platform].name} :</span> {a.statusMessage ?? ACCOUNT_STATUS[a.status].hint}
             </p>
             <Button size="xs" variant="outline" asChild className="self-start sm:self-auto">
@@ -50,7 +50,7 @@ export function AlertsBanner({ accounts, failedPosts }: { accounts: SocialAccoun
             <span className="inline-flex size-7 items-center justify-center rounded-full bg-danger-50 text-danger-500" aria-hidden="true">
               <XCircle className="size-4" />
             </span>
-            <p className="flex-1 text-sm text-ink-soft">
+            <p className="min-w-0 flex-1 text-sm text-ink-soft">
               <span className="font-semibold text-ink">Échec de publication :</span> « {p.title ?? p.body.slice(0, 40)} »
             </p>
             <Button size="xs" variant="outline" asChild className="self-start sm:self-auto">
@@ -180,7 +180,7 @@ export function RecentActivity({ items, isLoading }: { items: ActivityItem[] | u
 const SHORTCUTS: { to: string; label: string; description: string; icon: LucideIcon; tone: string }[] = [
   { to: "/content/create", label: "Créer une publication", description: "Écrire et publier sur vos réseaux", icon: SquarePen, tone: "bg-brand-500 text-white" },
   { to: "/media", label: "Importer un média", description: "Ajouter photos et vidéos", icon: ImagePlus, tone: "bg-warning-50 text-warning-700" },
-  { to: "/video-studio", label: "Découper une vidéo", description: "Créer des clips courts", icon: Clapperboard, tone: "bg-violet-50 text-violet-600" },
+  { to: "/studio/clipper", label: "Découper une vidéo", description: "Clips courts de 60 s maximum", icon: Clapperboard, tone: "bg-violet-50 text-violet-600" },
   { to: "/ai", label: "Demander à l'IA", description: "Idées, légendes, hashtags", icon: Sparkles, tone: "bg-success-50 text-success-700" },
 ]
 

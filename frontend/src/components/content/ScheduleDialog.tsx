@@ -71,7 +71,7 @@ export function ScheduleDialog({
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-[auto_1fr]">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-[auto_minmax(0,1fr)]">
           <Calendar
             mode="single"
             selected={date}

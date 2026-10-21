@@ -1,4 +1,4 @@
-import { AlertCircle, CalendarClock, CalendarX2, Copy, ExternalLink, History, Pencil, RotateCw, Trash2 } from "lucide-react"
+import { AlertCircle, AlertTriangle, CalendarClock, CalendarX2, Copy, ExternalLink, History, Pencil, RotateCw, Trash2 } from "lucide-react"
 import { PlatformIcon } from "@/components/brand/PlatformIcon"
 import { MediaThumb } from "@/components/media/MediaThumb"
 import { StatusBadge } from "@/components/shared/StatusBadge"
@@ -12,11 +12,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { usePost, usePostAttempts } from "@/hooks/queries/content"
+import { useSocialAccounts } from "@/hooks/queries/social"
 import { features, PUBLISHING_UNAVAILABLE } from "@/lib/features"
+import { isApiEnabled } from "@/lib/http"
 import { formatCompact, formatDate } from "@/lib/format"
 import { PLATFORMS } from "@/lib/platforms"
 import { ATTEMPT_STATUS, ATTEMPT_TRIGGER, POST_STATUS, VARIANT_STATUS } from "@/lib/status"
 import type { MediaAsset, Post } from "@/types"
+import { accountLabel } from "./composer/model"
 import { canCancel, canEdit, canReschedule, canRetry, postTitle } from "./postUtils"
 import type { PostActions } from "./usePostActions"
 
@@ -38,6 +41,8 @@ export function PostDetailDialog({
   const gone = detail.isError
   const hasAttempts = Boolean(post?.variants.some((v) => v.attemptsCount > 0) || post?.status === "processing")
   const attempts = usePostAttempts(hasAttempts ? post?.id : undefined, post?.status === "processing")
+  const socialAccounts = useSocialAccounts()
+  const accountById = new Map((socialAccounts.data ?? []).map((a) => [a.id, a]))
   return (
     <Dialog open={Boolean(listed)} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-[640px]">
@@ -74,19 +79,27 @@ export function PostDetailDialog({
             )}
 
             <section aria-labelledby="variants-title">
-              <h3 id="variants-title" className="text-sm font-semibold">Statut par réseau</h3>
+              <h3 id="variants-title" className="text-sm font-semibold">Statut par destination</h3>
               <ul className="mt-2 space-y-2">
                 {post.variants.map((v) => (
                   <li key={v.id} className="rounded-xl border border-border p-3">
                     <div className="flex items-center gap-3">
                       <PlatformIcon platform={v.platform} size="sm" />
-                      <span className="flex-1 text-sm font-medium text-ink">{PLATFORMS[v.platform].name}</span>
+                      {/* Une ligne par compte de destination : chacune a son propre statut, ses erreurs et ses tentatives. */}
+                      <span className="min-w-0 flex-1 text-sm">
+                        <span className="font-medium text-ink">{PLATFORMS[v.platform].name}</span>
+                        {accountById.get(v.socialAccountId) && <span className="block truncate text-xs text-ink-muted">{accountLabel(accountById.get(v.socialAccountId)!)}</span>}
+                      </span>
                       <StatusBadge meta={VARIANT_STATUS[v.status]} />
-                      {v.externalUrl && (
+                      {v.externalUrl && (isApiEnabled && v.externalUrl.startsWith("https://") ? (
+                        <Button variant="ghost" size="icon-xs" asChild>
+                          <a href={v.externalUrl} target="_blank" rel="noopener noreferrer" aria-label={`Voir sur ${PLATFORMS[v.platform].name} (nouvel onglet)`}><ExternalLink /></a>
+                        </Button>
+                      ) : (
                         <Button variant="ghost" size="icon-xs" aria-label={`Voir sur ${PLATFORMS[v.platform].name} (démo)`} disabled>
                           <ExternalLink />
                         </Button>
-                      )}
+                      ))}
                     </div>
                     {v.errorMessage && (
                       <p className="mt-2 flex items-start gap-2 rounded-lg bg-danger-50 px-3 py-2 text-xs text-danger-700">
@@ -118,6 +131,7 @@ export function PostDetailDialog({
                           <div className="flex flex-wrap items-center gap-2">
                             {variant && <PlatformIcon platform={variant.platform} size="sm" />}
                             <span className="font-medium text-ink">Tentative {a.attemptNumber}</span>
+                            {a.socialAccountId && accountById.get(a.socialAccountId) && <span className="text-xs text-ink-soft">{accountLabel(accountById.get(a.socialAccountId)!)}</span>}
                             <span className="text-xs text-ink-muted">
                               {ATTEMPT_TRIGGER[a.trigger]}
                               {a.startedAt && ` · ${formatDate(a.startedAt, "d MMM yyyy 'à' HH:mm:ss")}`}
@@ -125,6 +139,11 @@ export function PostDetailDialog({
                             <span className="ml-auto"><StatusBadge meta={ATTEMPT_STATUS[a.status]} /></span>
                           </div>
                           {a.errorMessage && <p className="mt-1.5 text-xs text-ink-soft">{a.errorMessage}</p>}
+                          {a.warnings.map((w) => (
+                            <p key={w.code} className="mt-2 flex items-start gap-2 rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700">
+                              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /> {w.message}
+                            </p>
+                          ))}
                         </li>
                       )
                     })}

@@ -12,6 +12,8 @@ enum SocialAccountType: string
     case Channel = 'channel';
     case Organization = 'organization';
     case BoardOwner = 'board_owner';
+    /** Groupe ou supergroupe (Telegram). */
+    case Group = 'group';
 
     /** @return list<string> */
     public static function values(): array

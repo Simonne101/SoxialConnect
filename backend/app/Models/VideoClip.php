@@ -9,12 +9,16 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** Clip d'un projet vidéo ; duration_ms est une colonne générée (end_ms - start_ms). */
+/**
+ * Clip d'un projet de clipping (ADR-046) ; duration_ms est une colonne générée (end_ms - start_ms),
+ * jamais supérieure à 60 000 ms (contrainte CHECK video_clips_max_duration_check).
+ * status, source, score, output_media_id, error_* et dates : fixés par les services, jamais en masse.
+ */
 class VideoClip extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['title', 'start_ms', 'end_ms', 'aspect_ratio', 'subtitles_enabled', 'subtitle_style'];
+    protected $fillable = ['title', 'topic', 'reason', 'start_ms', 'end_ms', 'aspect_ratio', 'subtitles_enabled', 'subtitle_style'];
 
     protected function casts(): array
     {
@@ -25,6 +29,13 @@ class VideoClip extends Model
             'subtitles_enabled' => 'boolean',
             'subtitle_style' => 'array',
             'score' => 'decimal:2',
+            'confidence' => 'integer',
+            'score_breakdown' => 'array',
+            'start_ms' => 'integer',
+            'end_ms' => 'integer',
+            'duration_ms' => 'integer',
+            'started_at' => 'datetime',
+            'finished_at' => 'datetime',
         ];
     }
 

@@ -63,4 +63,46 @@ return [
         'chunk_size_mb' => 16,
     ],
 
+    /*
+     * LinkedIn (Sign In with LinkedIn using OpenID Connect + Share on LinkedIn) —
+     * docs/publishing.md §14. Valeurs uniquement dans .env. redirect : URI HTTPS EXACTE déclarée
+     * dans le LinkedIn Developer Portal (local : https://<domaine-du-tunnel>/oauth/linkedin/callback).
+     */
+    'linkedin' => [
+        'client_id' => env('LINKEDIN_CLIENT_ID'),
+        'client_secret' => env('LINKEDIN_CLIENT_SECRET'),
+        'redirect' => env('LINKEDIN_REDIRECT_URI'),
+    ],
+
+    /*
+     * X (OAuth 2.0 Authorization Code + PKCE, client confidentiel) — docs/publishing.md §15.
+     * Valeurs uniquement dans .env. redirect : URI EXACTE déclarée dans la console développeur X
+     * (User authentication settings → Callback URI ; « localhost » y est refusé). Local, via le
+     * tunnel : https://<domaine-du-tunnel>/oauth/x/callback.
+     */
+    'x' => [
+        'client_id' => env('X_CLIENT_ID'),
+        'client_secret' => env('X_CLIENT_SECRET'),
+        'redirect' => env('X_REDIRECT_URI'),
+    ],
+
+    /*
+     * Telegram (Bot API) — docs/publishing.md §13. UN bot partagé par toute la plateforme :
+     * son token reste uniquement dans .env (jamais en base, jamais renvoyé au frontend, jamais
+     * journalisé : il figure dans l'URL de chaque appel). Aucun token utilisateur.
+     * webhook_secret : en-tête X-Telegram-Bot-Api-Secret-Token exigé sur le webhook
+     * (1 à 256 caractères A-Z a-z 0-9 _ -). webhook_url : URL HTTPS publique du webhook
+     * (en local, via le tunnel : https://<domaine-du-tunnel>/api/v1/webhooks/telegram).
+     */
+    'telegram' => [
+        'bot_token' => env('TELEGRAM_BOT_TOKEN'),
+        'bot_username' => env('TELEGRAM_BOT_USERNAME'),
+        'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
+        'webhook_url' => env('TELEGRAM_WEBHOOK_URL'),
+        'api_base' => 'https://api.telegram.org',
+        // Limites du serveur Bot API officiel : 50 Mo par fichier envoyé, 10 Mo par photo.
+        'max_upload_mb' => 50,
+        'max_photo_mb' => 10,
+    ],
+
 ];

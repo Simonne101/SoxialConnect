@@ -11,6 +11,7 @@ const ACCOUNT_BY_PLATFORM: Record<PlatformKey, string> = {
   x: "acc-x",
   pinterest: "acc-pin",
   threads: "acc-th",
+  telegram: "acc-tg",
 }
 
 const DEFAULT_FORMAT: Record<PlatformKey, PostFormat> = {
@@ -22,6 +23,7 @@ const DEFAULT_FORMAT: Record<PlatformKey, PostFormat> = {
   x: "feed",
   pinterest: "pin",
   threads: "feed",
+  telegram: "feed",
 }
 
 interface Seed {

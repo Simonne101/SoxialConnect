@@ -32,6 +32,8 @@ function useIsActive() {
     if (item.also?.includes(pathname)) return true
     // L'édition d'une publication existante relève de « Publications ».
     if (item.to === "/content" && /^\/content\/[^/]+\/edit$/.test(pathname)) return true
+    // Le Video Studio fait partie de l'AI Creative Studio (ADR-046).
+    if (item.to === "/studio" && (pathname === "/video-studio" || pathname.startsWith("/video-studio/"))) return true
     if (item.end) return pathname === item.to
     return pathname === item.to || pathname.startsWith(`${item.to}/`)
   }

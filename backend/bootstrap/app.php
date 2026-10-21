@@ -1,8 +1,11 @@
 <?php
 
 use App\Http\Middleware\AssignRequestId;
+use App\Http\Middleware\LimitJsonPayload;
+use App\Http\Middleware\RedirectIfAuthenticated;
 use App\Http\Middleware\RejectMalformedJson;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\TrustConfiguredProxies;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -10,6 +13,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Session\TokenMismatchException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -32,15 +36,18 @@ return Application::configure(basePath: dirname(__DIR__))
         // Proxies de confiance : par défaut UNIQUEMENT le proxy local (serveur Vite en développement,
         // Nginx sur la même machine en production). Ses en-têtes X-Forwarded-* (dont Proto: https
         // derrière un tunnel HTTPS) sont alors pris en compte ; jamais ceux d'une autre adresse.
-        // (env() : le fichier de configuration n'est pas encore chargé à ce stade.)
-        $middleware->trustProxies(at: array_values(array_filter(array_map(
-            'trim',
-            explode(',', (string) (env('TRUSTED_PROXIES') ?: '127.0.0.1,::1')),
-        ), fn (string $ip) => $ip !== '' && $ip !== '*' && $ip !== '**')));
+        // Liste lue à chaque requête dans config/security.php (trusted_proxies) et non par env() ici :
+        // compatible avec « config:cache » (ADR-072). « * » n'est jamais accepté.
+        $middleware->replace(TrustProxies::class, TrustConfiguredProxies::class);
 
         $middleware->prepend(AssignRequestId::class);
         $middleware->append(SecurityHeaders::class);
-        $middleware->api(prepend: [RejectMalformedJson::class]);
+        // Corps JSON limités (413, config security.max_json_kb) puis rejet des JSON illisibles (400).
+        $middleware->api(prepend: [LimitJsonPayload::class, RejectMalformedJson::class]);
+
+        // « guest » : réponse JSON 409 (et non une redirection vers « / ») pour un utilisateur déjà
+        // connecté qui appelle connexion / inscription depuis la SPA (App\Http\Middleware\RedirectIfAuthenticated).
+        $middleware->alias(['guest' => RedirectIfAuthenticated::class]);
 
         // Invité sur une page web (lien de vérification d'e-mail) : renvoyé vers la connexion de la SPA.
         $middleware->redirectGuestsTo(fn () => rtrim((string) config('app.frontend_url'), '/').'/login');

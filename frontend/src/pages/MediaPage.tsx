@@ -1,10 +1,12 @@
-import { Check, Folder, FolderInput, FolderPlus, ImagePlus, LayoutGrid, List, MoreHorizontal, Pencil, Plus, Search, SearchX, Tag, Trash2, Upload, X } from "lucide-react"
+import { Check, Folder, FolderInput, FolderPlus, ImagePlus, LayoutGrid, List, MoreHorizontal, Pencil, Plus, Search, SearchX, Send, Tag, Trash2, Upload, X } from "lucide-react"
 import { useDeferredValue, useState, type DragEvent } from "react"
+import { useNavigate } from "react-router"
 import { toast } from "sonner"
 import { MediaPreviewDialog } from "@/components/media/MediaPreviewDialog"
 import { MediaThumb } from "@/components/media/MediaThumb"
 import { UploadDialog } from "@/components/media/UploadDialog"
 import { UploadQueuePanel } from "@/components/media/UploadQueuePanel"
+import { composerStateFor, publishableSelection } from "@/lib/mediaPublishing"
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
 import { FilterTabs } from "@/components/shared/FilterTabs"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -89,6 +91,7 @@ function unavailableLabel(m: MediaAsset): string | null {
 }
 
 export default function MediaPage() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState<NonNullable<MediaFilters["type"]>>("all")
   const [folderId, setFolderId] = useState<string>("all")
   const [tag, setTag] = useState<string | null>(null)
@@ -131,6 +134,8 @@ export default function MediaPage() {
   if (data && page > data.lastPage) setPage(data.lastPage)
 
   const items = data?.items ?? []
+  // Publication directe de la sélection : même parcours que depuis le Clipper (Composer, médias référencés).
+  const publishable = publishableSelection(selected, items)
   const folderList = folders.data ?? []
   const tree = folderTree(folderList)
   const filtering = Boolean(deferred) || tag !== null || folderId !== "all" || tab !== "all"
@@ -339,8 +344,17 @@ export default function MediaPage() {
             <div className="mx-5 mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-brand-50 px-4 py-2.5" role="status">
               <span className="text-sm font-semibold text-brand-700">{selected.length} sélectionné(s)</span>
               <Button size="sm" variant="ghost" onClick={() => setSelected(items.map((m) => m.id))}>Tout sélectionner</Button>
+              {!publishable.ok && <span id="media-publish-reason" className="text-xs text-ink-muted">{publishable.reason}</span>}
               <div className="ml-auto flex flex-wrap gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setSelected([])}>Annuler</Button>
+                <Button
+                  size="sm"
+                  disabled={!publishable.ok}
+                  aria-describedby={publishable.ok ? undefined : "media-publish-reason"}
+                  onClick={() => publishable.ok && navigate("/content/create", { state: composerStateFor(publishable.mediaIds) })}
+                >
+                  <Send /> Publier sur les réseaux
+                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="sm" variant="outline"><FolderInput /> Déplacer vers</Button>

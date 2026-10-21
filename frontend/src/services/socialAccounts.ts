@@ -66,6 +66,14 @@ function find(id: string): SocialAccount {
   return store.socialAccounts.find((a) => a.id === id) ?? notFound("Compte")
 }
 
+/** Pages de consentement officielles acceptées pour la redirection OAuth. */
+const CONSENT_PAGES: Partial<Record<PlatformKey, string>> = {
+  youtube: "https://accounts.google.com/",
+  tiktok: "https://www.tiktok.com/v2/auth/authorize/",
+  linkedin: "https://www.linkedin.com/oauth/v2/authorization",
+  x: "https://x.com/i/oauth2/authorize",
+}
+
 /** Réseaux connectables via OAuth officiel (backend branché). */
 export const supportsOAuth = (platform: PlatformKey) => isApiEnabled && OAUTH_PLATFORMS.includes(platform)
 
@@ -78,11 +86,34 @@ export async function startOAuth(platform: PlatformKey): Promise<void> {
   if (!supportsOAuth(platform)) throw new FeatureUnavailableError(SOCIAL_ACTION_UNAVAILABLE.connect)
   const res = await http.post<{ authorization_url: string }>(`/social/${platform}/connect`)
   const url = res!.data.authorization_url
-  // Garde-fou : uniquement la page de consentement officielle attendue.
-  if (!url.startsWith("https://accounts.google.com/")) throw new FeatureUnavailableError("Adresse de connexion inattendue.")
+  // Garde-fou : uniquement la page de consentement officielle attendue pour ce réseau.
+  const consentPage = CONSENT_PAGES[platform]
+  if (!consentPage || !url.startsWith(consentPage)) throw new FeatureUnavailableError("Adresse de connexion inattendue.")
   window.location.assign(url)
   // La page quitte l'application : l'indicateur « Redirection… » reste affiché jusque-là.
   return new Promise<void>(() => {})
+}
+
+/** Telegram : liaison par le bot SoxialConnect (lien t.me + webhook), sans OAuth. */
+export const supportsTelegramLink = (platform: PlatformKey) => isApiEnabled && platform === "telegram"
+
+export interface TelegramLink {
+  linkUrl: string
+  botUsername: string
+  expiresAt: string
+}
+
+/**
+ * Lien de liaison d'une chaîne ou d'un groupe Telegram (code à usage unique, 10 min). Aucune
+ * donnée sensible : le token du bot ne quitte jamais le serveur. La liaison se termine dans
+ * Telegram ; la destination apparaît ensuite dans GET /social/accounts.
+ */
+export async function startTelegramLink(): Promise<TelegramLink> {
+  if (!isApiEnabled) throw new FeatureUnavailableError(SOCIAL_ACTION_UNAVAILABLE.connect)
+  const res = await http.post<{ link_url: string; bot_username: string; expires_at: string }>("/social/telegram/link")
+  const data = res!.data
+  if (!data.link_url.startsWith("https://t.me/")) throw new FeatureUnavailableError("Adresse de connexion inattendue.")
+  return { linkUrl: data.link_url, botUsername: data.bot_username, expiresAt: data.expires_at }
 }
 
 /** Emplacement « à connecter » pour un réseau sans compte (backend branché). */

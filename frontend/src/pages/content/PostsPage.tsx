@@ -6,6 +6,7 @@ import { PostActionsMenu } from "@/components/content/PostActionsMenu"
 import { PostPlatforms, PostStatusBadge } from "@/components/content/PostBits"
 import { postTitle } from "@/components/content/postUtils"
 import { PostDetailDialog } from "@/components/content/PostDetailDialog"
+import { useOpenedPost } from "@/components/content/useOpenedPost"
 import { usePostActions } from "@/components/content/usePostActions"
 import { MediaThumb } from "@/components/media/MediaThumb"
 import { FilterTabs } from "@/components/shared/FilterTabs"
@@ -39,7 +40,8 @@ export default function PostsPage() {
   const deferredSearch = useDeferredValue(search)
   const [platform, setPlatform] = useState<PlatformKey | "all">("all")
   const [page, setPage] = useState(1)
-  const [detail, setDetail] = useState<Post | null>(null)
+  const openedPost = useOpenedPost()
+  const [detail, setDetail] = useState<Post | null>(openedPost)
   const { actions, dialogs } = usePostActions()
 
   const current = TABS.find((t) => t.value === tab)!

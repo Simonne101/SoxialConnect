@@ -2,11 +2,14 @@
 
 namespace App\Providers;
 
+use App\Domain\Media\Security\ClamAvScanner;
 use App\Domain\Media\Security\MediaSecurityScanner;
 use App\Domain\Media\Security\NullMediaScanner;
 use App\Domain\Social\Security\TokenEncrypter;
 use App\Listeners\RecordAuthenticationAudit;
 use App\Models\User;
+use App\Support\Logging\RedactingFailedJobProvider;
+use App\Support\Logging\RedactingLogManager;
 use App\Support\Logging\SecretRedactor;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
@@ -30,10 +33,15 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(TokenEncrypter::class, fn () => TokenEncrypter::fromConfig(config('security.token_encryption')));
         $this->app->singleton(SecretRedactor::class, fn () => SecretRedactor::fromConfig());
+        // Journal de secours expurgé comme les autres canaux (RedactingLogManager).
+        $this->app->singleton('log', fn ($app) => new RedactingLogManager($app));
+        // Jobs en échec : texte de l'exception expurgé avant enregistrement (failed_jobs).
+        $this->app->extend('queue.failer', fn ($failer, $app) => new RedactingFailedJobProvider($failer, $app->make(SecretRedactor::class)));
 
-        // Antivirus des médias : aucun moteur installé pour l'instant (ClamAV : phase ultérieure).
-        // Un driver inconnu ne doit jamais passer pour un moteur fonctionnel.
+        // Antivirus des médias : ClamAV (clamd) si configuré (étape 8, lot 6). Un driver inconnu ne doit jamais passer
+        // pour un moteur fonctionnel : il donne le scanner nul (aucune analyse, échec fermé si l'analyse est exigée).
         $this->app->singleton(MediaSecurityScanner::class, fn () => match (config('media.scan.driver')) {
+            'clamav' => ClamAvScanner::fromConfig((array) config('media.scan.clamav')),
             default => new NullMediaScanner,
         });
     }
@@ -79,6 +87,7 @@ class AppServiceProvider extends ServiceProvider
         ]);
         RateLimiter::for('publish', fn (Request $r) => Limit::perHour($limit('publish_per_hour'))->by($byUser($r)));
         RateLimiter::for('oauth', fn (Request $r) => Limit::perHour($limit('oauth_per_hour'))->by($byUser($r)));
+        RateLimiter::for('analytics-sync', fn (Request $r) => Limit::perHour($limit('analytics_sync_per_hour'))->by($byUser($r)));
         RateLimiter::for('webhooks', fn (Request $r) => Limit::perMinute($limit('webhooks_per_minute'))->by(($r->route('platform') ?? 'unknown').'|'.$r->ip()));
     }
 
