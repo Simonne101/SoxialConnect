@@ -1,89 +1,94 @@
-import { ArrowRight, CheckCircle2, PlayCircle } from "lucide-react"
-import { Link } from "react-router"
-import { PlatformIcon } from "@/components/brand/PlatformIcon"
-import { Button } from "@/components/ui/button"
-import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
-import { HERO_PNG, HERO_SIZES, HERO_SRCSET } from "./heroImage"
-
-// Bloc de chiffres (« 8+ / 10k+ / 99 % ») retiré : chiffres fictifs (audit UX-02) et « 8+ » redondant
-// avec la rangée d'icônes des réseaux. À réintroduire uniquement avec des données réelles et vérifiables.
+import { ArrowDown, ArrowRight, CalendarCheck2, Sparkles } from "lucide-react";
+import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
+import { HERO_PNG, HERO_SIZES, HERO_SRCSET } from "./heroImage";
 
 export function Hero() {
   return (
-    <section id="accueil" aria-labelledby="hero-title" className="relative overflow-hidden pt-(--landing-nav-h)">
-      {/* Formes décoratives lavande */}
-      <div aria-hidden="true" className="pointer-events-none absolute top-24 right-[-10%] size-[640px] rounded-full bg-lavender/70 blur-3xl" />
-      <div aria-hidden="true" className="pointer-events-none absolute -bottom-40 left-[-15%] size-[520px] rounded-full bg-brand-100/60 blur-3xl" />
-
-      <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-4 pt-10 pb-16 sm:px-6 md:pt-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)] lg:gap-6 lg:px-8 lg:pt-16 lg:pb-24">
-        {/* Colonne texte */}
-        <div className="max-w-xl text-center lg:text-left">
-          <h1 id="hero-title" className="text-[34px] leading-[1.12] font-extrabold tracking-tight sm:text-5xl lg:text-[54px]">
-            Gérez tous vos <span className="text-brand-gradient">réseaux sociaux</span> depuis une seule plateforme
-          </h1>
-          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-ink-muted sm:text-lg lg:mx-0">
-            Créez, planifiez, publiez et analysez votre contenu sur tous vos réseaux sociaux. Gagnez du temps et
-            développez votre audience avec SoxialConnect.
+    <section
+      id="accueil"
+      aria-labelledby="hero-title"
+      className="landing-hero relative overflow-hidden pt-(--landing-nav-h)"
+    >
+      <div className="landing-orbit" aria-hidden="true" />
+      <div className="relative mx-auto grid max-w-7xl items-center gap-8 px-5 pt-12 pb-14 sm:px-6 sm:pt-16 lg:grid-cols-[1fr_1.05fr] lg:gap-3 lg:px-8 lg:pt-20 lg:pb-20">
+        <div className="hero-enter relative z-10 mx-auto max-w-xl text-center lg:text-left">
+          <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-brand-200 bg-white/80 px-3.5 py-2 text-xs font-semibold text-brand-700 sm:text-sm">
+            <Sparkles className="size-4" aria-hidden="true" /> Votre créativité.
+            Sans les limites.
           </p>
-
+          <h1
+            id="hero-title"
+            className="text-[clamp(2.5rem,4.6vw,4.25rem)] leading-[1.06] font-extrabold tracking-[-0.055em]"
+          >
+            De grandes idées.
+            <br />
+            Des réseaux vivants.
+            <br />
+            <span className="hero-highlight">Un seul espace.</span>
+          </h1>
+          <p className="mx-auto mt-6 max-w-md text-base leading-relaxed text-ink-muted sm:text-lg lg:mx-0">
+            Créez, planifiez et publiez sur vos réseaux sociaux avec
+            SoxialConnect. Moins d’allers-retours. Plus de place pour ce que
+            vous avez à raconter.
+          </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
-            <Button size="lg" asChild>
+            <Button size="lg" asChild className="h-12 rounded-full px-6">
               <Link to="/register">
-                Commencer gratuitement <ArrowRight />
+                Commencer gratuitement <ArrowRight aria-hidden="true" />
               </Link>
             </Button>
-            <Button size="lg" variant="outline" asChild>
-              <Link to="/dashboard">
-                <PlayCircle /> Voir la démo
-              </Link>
+            <Button
+              size="lg"
+              variant="outline"
+              asChild
+              className="h-12 rounded-full border-brand-200 bg-white/70 px-6"
+            >
+              <a href="#apercu">
+                Explorer la plateforme <ArrowDown aria-hidden="true" />
+              </a>
             </Button>
           </div>
-
-          <div className="mt-8">
-            <ul className="flex flex-wrap items-center justify-center gap-2.5 lg:justify-start" aria-label="Réseaux pris en charge">
-              {PLATFORM_ORDER.map((p) => (
-                <li key={p}>
-                  <PlatformIcon platform={p} size="sm" title={PLATFORMS[p].name} className="shadow-card ring-2 ring-white" />
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-sm text-ink-muted">+ d'autres plateformes bientôt</p>
-          </div>
+          <p className="mt-5 text-xs leading-relaxed text-ink-muted sm:text-sm">
+            Création · Programmation · Vidéo · Analyse
+          </p>
         </div>
-
-        {/* Visuel : Images/Image sect-hero.png (versions WebP optimisées + PNG d'origine en repli) */}
-        <div className="relative mx-auto w-full max-w-[680px] lg:max-w-none">
-          <div aria-hidden="true" className="absolute inset-[6%] rounded-[42%_58%_55%_45%/50%_45%_55%_50%] bg-gradient-to-br from-lavender via-brand-100 to-violet-100" />
+        <div className="hero-enter hero-enter-later relative mx-auto w-full max-w-[680px]">
+          <div data-loop className="hero-image-halo" aria-hidden="true" />
           <picture>
             <source type="image/webp" srcSet={HERO_SRCSET} sizes={HERO_SIZES} />
             <img
               src={HERO_PNG}
               width={1520}
               height={1035}
-              alt="Une créatrice de contenu souriante travaille sur son ordinateur, entourée des logos des réseaux sociaux et de statistiques d'audience en hausse."
+              alt="Une créatrice prépare ses publications, entourée des réseaux sociaux réunis dans SoxialConnect."
               fetchPriority="high"
               decoding="async"
-              className="relative h-auto w-full rounded-[28px] object-contain hero-mask"
+              className="hero-mask relative h-auto w-full rounded-[28px] object-contain"
             />
           </picture>
-
-          <div className="absolute bottom-[6%] left-[2%] hidden animate-float items-center gap-3 rounded-2xl border border-border bg-card/95 px-4 py-3 shadow-float backdrop-blur sm:flex">
-            <span className="inline-flex size-9 items-center justify-center rounded-full bg-success-50 text-success-500" aria-hidden="true">
-              <CheckCircle2 className="size-5" />
+          <div
+            data-loop
+            className="hero-note absolute bottom-16 left-2 flex items-center gap-3 rounded-2xl border border-white bg-white/95 px-4 py-3 shadow-float sm:bottom-20 sm:left-5"
+          >
+            <span className="grid size-10 place-items-center rounded-xl bg-success-50 text-success-700">
+              <CalendarCheck2 className="size-5" aria-hidden="true" />
             </span>
-            <span className="text-sm leading-tight">
-              <span className="block font-semibold text-ink">Votre contenu</span>
-              <span className="text-ink-muted">est publié !</span>
+            <span className="text-sm">
+              <strong className="block text-ink">
+                Une semaine bien organisée.
+              </strong>
+              <span className="text-ink-muted">L’esprit libre pour créer.</span>
             </span>
           </div>
-
-          <p className="relative mt-2 text-right font-script text-[26px] leading-tight text-ink-soft sm:text-3xl" aria-hidden="true">
-            Créez. Planifiez. Publiez.
-            <br />
-            Analysez. Grandissez.
+          <p
+            className="mt-9 text-right font-script text-3xl text-brand-700 sm:mt-5 sm:text-4xl"
+            aria-hidden="true"
+          >
+            Vos idées méritent d’être vues.
           </p>
         </div>
       </div>
     </section>
-  )
+  );
 }

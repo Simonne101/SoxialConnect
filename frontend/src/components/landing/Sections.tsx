@@ -38,8 +38,8 @@ import {
 } from "./FeatureVisuals";
 
 /*
- * Page d'accueil — structure : Hero → Problème / valeur → Fonctionnalités → Comment ça fonctionne
- * (+ confiance, questions fréquentes) → Aperçu de la plateforme → CTA final (+ tarifs) → Footer.
+ * Sections communes de la page publique. Les temps forts Video Studio et les parcours
+ * par activité sont dans SpotlightSections ; la FAQ garde sa propre section.
  * Les ancres du menu (#fonctionnalites, #tarifs, #comment-ca-marche, #securite, #faq) restent valides.
  */
 
@@ -55,11 +55,14 @@ function SectionHeading({
   id: string;
 }) {
   return (
-    <div className="mx-auto max-w-2xl text-center">
+    <div data-reveal className="mx-auto max-w-2xl text-center">
       <p className="text-sm font-semibold tracking-wide text-brand-600 uppercase">
         {eyebrow}
       </p>
-      <h2 id={id} className="mt-3 text-3xl font-extrabold sm:text-4xl">
+      <h2
+        id={id}
+        className="mt-3 text-3xl font-extrabold sm:text-[2.75rem] leading-tight"
+      >
         {title}
       </h2>
       {description && (
@@ -104,7 +107,7 @@ export function ProblemSection() {
           description="Chaque réseau a son application, ses formats et ses statistiques. SoxialConnect réunit tout au même endroit."
         />
         {/* Démonstration produit (Images/sect2.png) : hors du premier écran → chargement différé. */}
-        <picture className="mt-10 block">
+        <picture data-reveal className="mt-10 block">
           <source
             media="(max-width: 639px)"
             type="image/webp"
@@ -124,7 +127,7 @@ export function ProblemSection() {
             className="mx-auto h-auto w-full max-w-[420px] sm:max-w-[1370px]"
           />
         </picture>
-        <ul className="mt-12 grid gap-5 md:grid-cols-3">
+        <ul data-reveal className="mt-12 grid gap-5 md:grid-cols-3">
           {VALUES.map(({ icon: Icon, title, text }) => (
             <li
               key={title}
@@ -165,8 +168,11 @@ export function FeaturesSection() {
           title="Tout ce qu'il faut, rien de compliqué"
           description="Les outils essentiels pour créer, publier et mesurer, pensés pour être compris dès la première utilisation."
         />
-        <div className="mt-10">
-          <FeatureCarousel items={FEATURES} label="Fonctionnalités de SoxialConnect" />
+        <div data-reveal className="mt-10">
+          <FeatureCarousel
+            items={FEATURES}
+            label="Fonctionnalités de SoxialConnect"
+          />
         </div>
       </div>
     </section>
@@ -202,7 +208,7 @@ const TRUST: { icon: LucideIcon; text: string }[] = [
   { icon: Unplug, text: "Déconnexion d'un réseau à tout moment" },
 ];
 
-// Fusion de l'ancienne section « FAQ » : accordéon compact (le menu « Ressources » y pointe).
+// Questions fréquentes : section dédiée, accessible depuis le menu Ressources.
 const FAQ = [
   {
     q: "Faut-il des compétences techniques ?",
@@ -236,11 +242,7 @@ export function HowItWorksSection() {
           title="Trois étapes, et c'est tout"
         />
 
-        <ol className="relative mt-10 grid gap-4 md:grid-cols-3">
-          <span
-            aria-hidden="true"
-            className="absolute top-9 right-[16%] left-[16%] hidden h-px bg-gradient-to-r from-brand-200 via-violet-100 to-brand-200 md:block"
-          />
+        <ol data-reveal className="relative mt-12 grid gap-9 md:grid-cols-3">
           {STEPS.map(({ icon: Icon, title, text }, i) => (
             <li
               key={title}
@@ -281,32 +283,45 @@ export function HowItWorksSection() {
             </li>
           ))}
         </ul>
+      </div>
+    </section>
+  );
+}
 
-        <div id="faq" className="mt-12 scroll-mt-28">
-          <h3 className="text-center text-xl font-bold">
-            Questions fréquentes
-          </h3>
-          <div className="mx-auto mt-5 grid max-w-5xl gap-3 md:grid-cols-2">
-            {FAQ.map((item) => (
-              <details
-                key={item.q}
-                className="group self-start rounded-xl border border-border bg-page/60 px-4 py-3 [&_summary::-webkit-details-marker]:hidden"
-              >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
-                  {item.q}
-                  <span
-                    className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600 transition-transform group-open:rotate-45"
-                    aria-hidden="true"
-                  >
-                    +
-                  </span>
-                </summary>
-                <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-                  {item.a}
-                </p>
-              </details>
-            ))}
-          </div>
+export function FaqSection() {
+  return (
+    <section
+      id="faq"
+      aria-labelledby="faq-title"
+      className="px-5 py-16 sm:py-24"
+    >
+      <div className="mx-auto max-w-5xl">
+        <SectionHeading
+          id="faq-title"
+          eyebrow="On vous répond"
+          title="Tout simplement."
+          description="Quelques réponses avant de vous lancer."
+        />
+        <div className="mx-auto mt-9 grid max-w-5xl gap-4 md:grid-cols-2">
+          {FAQ.map((item) => (
+            <details
+              key={item.q}
+              className="group self-start rounded-xl border border-border bg-white px-5 py-4 [&_summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
+                {item.q}
+                <span
+                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600 transition-transform group-open:rotate-45"
+                  aria-hidden="true"
+                >
+                  +
+                </span>
+              </summary>
+              <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+                {item.a}
+              </p>
+            </details>
+          ))}
         </div>
       </div>
     </section>
@@ -417,12 +432,12 @@ export function PlatformPreviewSection() {
           description="Un aperçu des écrans que vous utiliserez au quotidien."
         />
         <Tabs defaultValue="creer" className="mt-8 items-center">
-          <TabsList className="h-auto max-w-full flex-wrap justify-center gap-1 bg-muted p-1">
+          <TabsList className="h-auto! max-w-full flex-wrap justify-center gap-1 bg-muted p-1">
             {PREVIEWS.map((p) => (
               <TabsTrigger
                 key={p.value}
                 value={p.value}
-                className="h-9 flex-none px-3.5"
+                className="min-h-11 flex-none px-3.5"
               >
                 {p.label}
               </TabsTrigger>
@@ -436,7 +451,7 @@ export function PlatformPreviewSection() {
                 key={p.value}
                 value={p.value}
                 forceMount
-                className="col-start-1 row-start-1 w-full self-start data-[state=inactive]:invisible"
+                className="preview-panel col-start-1 row-start-1 w-full self-start data-[state=inactive]:invisible"
               >
                 <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-16">
                   <div className="text-center lg:text-left">
@@ -497,7 +512,7 @@ export function CtaSection() {
           id="cta-title"
           className="relative text-3xl font-extrabold text-white sm:text-4xl"
         >
-          Prêt à gagner du temps sur vos réseaux ?
+          Votre prochaine grande idée commence ici.
         </h2>
         <p className="relative mx-auto mt-3 max-w-xl text-brand-50">
           Une seule plateforme. Tous vos réseaux. Tout votre contenu.
@@ -509,7 +524,7 @@ export function CtaSection() {
             className="bg-white text-brand-700 shadow-none hover:bg-brand-50"
           >
             <Link to="/register">
-              Inscription <ArrowRight />
+              Créer mon espace <ArrowRight />
             </Link>
           </Button>
         </div>
@@ -531,7 +546,7 @@ export function LandingFooter() {
       links: [
         ["Fonctionnalités", "#fonctionnalites"],
         ["Tarifs", "#tarifs"],
-        ["Démo", "/dashboard"],
+        ["Aperçu", "#apercu"],
       ],
     },
     {
@@ -539,7 +554,7 @@ export function LandingFooter() {
       links: [
         ["Comment ça marche", "#comment-ca-marche"],
         ["Questions fréquentes", "#faq"],
-        ["Design system", "/design-system"],
+        ["Video Studio", "#studio-video"],
       ],
     },
     {
@@ -553,37 +568,39 @@ export function LandingFooter() {
   ];
   return (
     <footer className="border-t border-border bg-card">
-      <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-[1.4fr_repeat(3,1fr)] lg:px-8">
+      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-x-6 gap-y-7 px-4 py-9 sm:gap-10 sm:px-6 sm:py-12 lg:grid-cols-[1.4fr_repeat(3,1fr)] lg:px-8">
         <div>
-          <div className="flex items-center gap-2">
-            <LogoMark />
-            <span className="text-lg font-bold text-ink">SoxialConnect</span>
+          <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+            <LogoMark className="size-5 shrink-0 sm:size-8" />
+            <span className="text-[13px] font-bold text-ink sm:text-lg">
+              SoxialConnect
+            </span>
           </div>
-          <p className="mt-4 max-w-xs text-sm text-ink-muted">
+          <p className="mt-3 max-w-xs text-xs leading-relaxed text-ink-muted sm:text-sm">
             Gérez tous vos réseaux sociaux depuis une seule plateforme.
           </p>
-          <p className="mt-4 inline-flex items-center gap-1.5 text-xs text-ink-muted">
-            <Lock className="size-3.5" aria-hidden="true" /> Connexions
-            officielles uniquement
+          <p className="mt-3 inline-flex items-start gap-1.5 text-xs text-ink-muted">
+            <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />{" "}
+            Connexions officielles uniquement
           </p>
         </div>
         {cols.map((c) => (
           <nav key={c.title} aria-label={c.title}>
             <h2 className="text-sm font-semibold text-ink">{c.title}</h2>
-            <ul className="mt-4 space-y-2.5">
+            <ul className="mt-2 space-y-1">
               {c.links.map(([label, href]) => (
                 <li key={label}>
                   {href.startsWith("#") ? (
                     <a
                       href={href}
-                      className="text-sm text-ink-muted hover:text-brand-600"
+                      className="inline-flex min-h-9 items-center text-sm text-ink-muted hover:text-brand-600"
                     >
                       {label}
                     </a>
                   ) : (
                     <Link
                       to={href}
-                      className="text-sm text-ink-muted hover:text-brand-600"
+                      className="inline-flex min-h-9 items-center text-sm text-ink-muted hover:text-brand-600"
                     >
                       {label}
                     </Link>
@@ -594,7 +611,7 @@ export function LandingFooter() {
           </nav>
         ))}
       </div>
-      <div className="border-t border-border py-6 text-center text-xs text-ink-muted">
+      <div className="border-t border-border px-4 py-4 text-center text-xs text-ink-muted">
         © {YEAR} SoxialConnect. Tous droits réservés.
       </div>
     </footer>

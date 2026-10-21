@@ -13,8 +13,9 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { cn } from "@/lib/utils"
 
 const LINKS = [
-  { href: "#accueil", label: "Accueil" },
+  { href: "#studio-video", label: "Video Studio" },
   { href: "#fonctionnalites", label: "Fonctionnalités" },
+  { href: "#pour-vous", label: "Pour vous" },
   { href: "#tarifs", label: "Tarifs" },
 ]
 
@@ -53,7 +54,7 @@ export function LandingNavbar() {
           <span className="hidden text-lg font-bold tracking-tight text-ink min-[440px]:inline">SoxialConnect</span>
         </a>
 
-        <nav aria-label="Navigation du site" className="ml-10 hidden items-center gap-1 lg:flex">
+        <nav aria-label="Navigation du site" className="ml-6 hidden items-center gap-1 lg:flex">
           {LINKS.map((l) => (
             <a key={l.href} href={l.href} className="rounded-lg px-3 py-2 text-sm font-medium text-ink-soft transition-colors hover:bg-brand-50 hover:text-brand-600">
               {l.label}
