@@ -1,23 +1,38 @@
 import { useId } from "react"
 import { cn } from "@/lib/utils"
 
-/** Monogramme « S » en dégradé indigo → violet, d'après le logo de la maquette. */
+/** Courbe du « S » et ses deux nœuds de connexion (repère 64 × 64, cadré par le viewBox). */
+const S_PATH =
+  "M44.6 19.4C41.6 15.1 36.9 13 31.5 13 24 13 18.6 17.1 18.6 23.1c0 6.4 5.9 8.3 13.4 9.6 7.5 1.3 13.4 3.3 13.4 9.8 0 6.1-5.5 9.5-13 9.5-6 0-10.9-2.2-13.9-6.5"
+const NODES = [
+  [44.6, 19.4],
+  [18.5, 46],
+] as const
+
+/** Monogramme « S » en dégradé indigo → violet dont les extrémités sont des nœuds de connexion (centres évidés). */
 export function LogoMark({ className }: { className?: string }) {
   const id = useId()
   return (
-    <svg viewBox="0 0 32 32" aria-hidden="true" className={cn("size-8", className)}>
+    <svg viewBox="8 8.5 48 48" aria-hidden="true" className={cn("size-8", className)}>
       <defs>
-        <linearGradient id={`${id}-a`} x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+        <linearGradient id={`${id}-a`} x1="18" y1="12" x2="46" y2="54" gradientUnits="userSpaceOnUse">
           <stop offset="0" stopColor="var(--color-brand-400)" />
-          <stop offset="0.55" stopColor="var(--color-brand-500)" />
+          <stop offset="0.45" stopColor="var(--color-brand-500)" />
           <stop offset="1" stopColor="var(--color-violet-500)" />
         </linearGradient>
+        <mask id={`${id}-h`} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+          <rect width="64" height="64" fill="#fff" />
+          {NODES.map(([cx, cy]) => (
+            <circle key={cx} cx={cx} cy={cy} r="2.5" fill="#000" />
+          ))}
+        </mask>
       </defs>
-      <path
-        fill={`url(#${id}-a)`}
-        d="M19.6 2.4c-6.9-.9-13 3.6-13 9.6 0 4.1 2.8 6.4 6.6 7.9l3.7 1.4c1.7.7 2.4 1.3 2.4 2.3 0 1.6-2 2.7-4.7 2.7-2.4 0-4.6-.9-6.5-2.5l-3 4.4C7.6 30.5 11 31.8 15 31.8c6.4 0 11.1-3.7 11.1-9 0-4-2.4-6.3-6.7-8l-3.8-1.5c-1.8-.7-2.7-1.3-2.7-2.4 0-1.5 1.7-2.4 4-2.4 1.9 0 3.5.5 5.1 1.6l3-4.2c-1.7-1.3-3.6-2.1-5.4-3.5Z"
-      />
-      <circle cx="25.5" cy="6.5" r="2.5" fill="var(--color-violet-500)" opacity="0.85" />
+      <g fill={`url(#${id}-a)`} mask={`url(#${id}-h)`}>
+        <path d={S_PATH} fill="none" stroke={`url(#${id}-a)`} strokeWidth="7.2" strokeLinecap="round" />
+        {NODES.map(([cx, cy]) => (
+          <circle key={cx} cx={cx} cy={cy} r="6.3" />
+        ))}
+      </g>
     </svg>
   )
 }
