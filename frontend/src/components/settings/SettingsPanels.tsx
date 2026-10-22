@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
 import { Field, PasswordInput } from "@/components/shared/FormField"
 import { ListSkeleton } from "@/components/shared/States"
 import { StatusBadge } from "@/components/shared/StatusBadge"
+import { TimezoneSelect } from "@/components/shared/TimezoneSelect"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,7 +34,7 @@ import { useSocialAccounts } from "@/hooks/queries/social"
 import { formatDate, formatRelative, initials } from "@/lib/format"
 import { PLATFORMS } from "@/lib/platforms"
 import { ACCOUNT_STATUS } from "@/lib/status"
-import { TIMEZONES } from "@/lib/time"
+import { DEFAULT_TIMEZONE } from "@/lib/time"
 import type { NotificationPreferences } from "@/types"
 import { TwoFactorPanel } from "./TwoFactorPanel"
 
@@ -325,15 +326,12 @@ export function PreferencesPanel() {
     <Panel title="Préférences" description="Adaptez SoxialConnect à votre façon de travailler.">
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="pref-tz" className="text-[13px] font-semibold">Fuseau horaire</Label>
-          <Select value={me?.timezone ?? "Europe/Paris"} onValueChange={(v) => update.mutate({ timezone: v }, { onSuccess: () => toast.success("Fuseau horaire enregistré.") })}>
-            <SelectTrigger id="pref-tz" className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {TIMEZONES.map((tz) => (
-                <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label htmlFor="pref-tz" className="text-[13px] font-semibold">Pays (fuseau horaire)</Label>
+          <TimezoneSelect
+            id="pref-tz"
+            value={me?.timezone ?? DEFAULT_TIMEZONE}
+            onChange={(v) => update.mutate({ timezone: v }, { onSuccess: () => toast.success("Fuseau horaire enregistré.") })}
+          />
           <p className="text-xs text-ink-muted">Utilisé pour programmer vos publications.</p>
         </div>
         <div className="space-y-1.5">
