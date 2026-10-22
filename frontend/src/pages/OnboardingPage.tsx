@@ -6,11 +6,13 @@ import { PlatformIcon } from "@/components/brand/PlatformIcon"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { TimezoneSelect } from "@/components/shared/TimezoneSelect"
+import { useUpdateMe } from "@/hooks/queries/misc"
 import { useConnectAccount, useSocialAccounts } from "@/hooks/queries/social"
 import { FeatureUnavailableError } from "@/lib/features"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/platforms"
-import { TIMEZONES } from "@/lib/time"
+import { suggestedTimezone } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 const STEPS = ["Connecter", "Personnaliser", "Bienvenue"] as const
@@ -54,7 +56,8 @@ export default function OnboardingPage() {
   useDocumentTitle("Bienvenue")
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
-  const [timezone, setTimezone] = useState("Europe/Paris")
+  const [timezone, setTimezone] = useState(suggestedTimezone)
+  const updateMe = useUpdateMe()
   const [language, setLanguage] = useState("fr")
   const [goals, setGoals] = useState<string[]>(["Gagner du temps"])
   const { data: accounts } = useSocialAccounts()
@@ -69,6 +72,18 @@ export default function OnboardingPage() {
         if (!(error instanceof FeatureUnavailableError)) toast.error(`La connexion à ${name} a échoué. Réessayez.`)
       },
     })
+  }
+
+  // L'étape « Personnaliser » enregistre le pays choisi (fuseau horaire du profil) avant de continuer.
+  const handleNext = () => {
+    if (step !== 1) return setStep(step + 1)
+    updateMe.mutate(
+      { timezone },
+      {
+        onSuccess: () => setStep(2),
+        onError: () => toast.error("Votre pays n'a pas pu être enregistré. Réessayez."),
+      },
+    )
   }
 
   return (
@@ -124,17 +139,8 @@ export default function OnboardingPage() {
           <p className="mt-2 text-sm text-ink-muted sm:text-base">Ces réglages servent à programmer vos publications à la bonne heure.</p>
           <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="tz" className="text-[13px] font-semibold">Fuseau horaire</Label>
-              <Select value={timezone} onValueChange={setTimezone}>
-                <SelectTrigger id="tz" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map((tz) => (
-                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="tz" className="text-[13px] font-semibold">Pays (fuseau horaire)</Label>
+              <TimezoneSelect id="tz" value={timezone} onChange={setTimezone} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="lang" className="text-[13px] font-semibold">Langue</Label>
@@ -207,7 +213,8 @@ export default function OnboardingPage() {
             {step === 0 && connectedCount === 0 && (
               <Button variant="ghost" onClick={() => setStep(1)}>Passer</Button>
             )}
-            <Button size="lg" onClick={() => setStep(step + 1)} className="min-w-36">
+            <Button size="lg" onClick={handleNext} disabled={updateMe.isPending} className="min-w-36">
+              {updateMe.isPending && <LoaderCircle className="animate-spin" />}
               Suivant <ArrowRight />
             </Button>
           </div>
