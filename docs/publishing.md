@@ -720,3 +720,139 @@ L'historique (`publication_attempts.response_excerpt`) ne garde que `http_status
 2. Réseaux sociaux › X › Connecter, autorisez l'application, vérifiez le compte.
 3. Dans le Composer, cochez X, saisissez un **texte** sans média, puis « Publier maintenant ».
 4. Vérifiez le statut « Publié » et ouvrez le lien vers le post.
+
+## 16. Facebook (Pages)
+
+Sources officielles (developers.facebook.com/docs) : `facebook-login/guides/advanced/manual-flow`,
+`facebook-login/guides/access-tokens/get-long-lived`, `pages-api/overview`, `graph-api/reference/page/feed`,
+`graph-api/reference/page/photos`, `graph-api/reference/page/videos`.
+
+### Variables d'environnement
+
+```dotenv
+META_APP_ID=                 # ID de l'app Meta (Paramètres de l'app → Général)
+META_APP_SECRET=             # secret : uniquement dans .env
+FACEBOOK_REDIRECT_URI=https://<domaine>/oauth/facebook/callback
+FACEBOOK_LOGIN_CONFIG_ID=    # facultatif : configuration « Facebook Login for Business »
+META_GRAPH_VERSION=v23.0
+```
+
+Dans l'app Meta : cas d'usage **« Gérer tout sur votre Page »**, URI de redirection OAuth valide
+**identique** à `FACEBOOK_REDIRECT_URI`. Tant que l'app est en mode développement, seules les personnes
+ayant un rôle sur l'app (Admin, Développeur, Testeur) peuvent se connecter ; l'examen de l'app par Meta
+ouvre la connexion à tous.
+
+### Connexion (Facebook Login, authorization code)
+
+1. Réseaux sociaux › Facebook › Connecter : `POST /api/v1/social/facebook/connect` → `state` à usage unique
+   (`OAuthStateStore`) et URL `https://www.facebook.com/{version}/dialog/oauth` avec les permissions
+   `pages_show_list, pages_manage_posts, pages_read_engagement, read_insights` (ou `config_id` si
+   `FACEBOOK_LOGIN_CONFIG_ID` est renseigné).
+2. Retour sur `GET /oauth/facebook/callback` (`FacebookCallbackController`) : utilisateur connecté → `state`
+   → erreur Facebook (`access_denied` → `ACCESS_DENIED`) → échange du code (`POST /oauth/access_token`)
+   → jeton utilisateur **longue durée** (`fb_exchange_token`, 60 jours) → permissions réellement accordées
+   (`GET /me/permissions`) : sans `pages_show_list` et `pages_manage_posts`, rien n'est enregistré
+   (`PUBLISH_SCOPE_DENIED`) → identité (`GET /me`) → Pages (`GET /me/accounts`, jeton de chaque Page).
+3. `ConnectFacebookPages` enregistre **un compte par Page** où la personne peut publier (tâche
+   `CREATE_CONTENT`) : `account_type` = `page`, jeton **de Page** chiffré (`token_kind` = `page`), sans
+   expiration (issu d'un jeton utilisateur longue durée), permissions accordées. Le jeton utilisateur n'est
+   jamais conservé. Aucune Page : `NO_PAGES` ; aucune Page publiable : `NO_PUBLISHABLE_PAGE`.
+4. Retour vers `/social-accounts?oauth=facebook&status=connected&count=<nombre de Pages>`.
+
+Sécurité : chaque appel porte `appsecret_proof` (HMAC-SHA256 du jeton par la clé secrète) ; les jetons
+passent par l'en-tête `Authorization`, la clé secrète par le corps des requêtes : jamais dans une URL.
+
+**Jeton (`FacebookTokenManager`) :** aucun renouvellement. Refusé par Facebook (code 190 : accès retiré,
+mot de passe changé, rôle perdu) → Page « à reconnecter », plus aucun appel. **Déconnexion :** effacement
+des jetons locaux (la personne peut aussi retirer l'accès dans Facebook › Paramètres › Intégrations
+professionnelles).
+
+### Publication (`FacebookPublisher`)
+
+| Contenu | Appel |
+|---|---|
+| Texte seul | `POST /{page-id}/feed` (`message`) |
+| 1 photo (JPEG, PNG, GIF) | `POST /{page-id}/photos` (`url`, `caption`) → identifiant `post_id` |
+| 2 à 10 photos | chaque photo `published=false`, puis `POST /{page-id}/feed` avec `attached_media` |
+| 1 vidéo (MP4, MOV) | `POST /{page-id}/videos` (`file_url`, `description`) |
+
+Facebook télécharge les fichiers par une **URL signée de courte durée** (`MediaStorage::temporaryUrl`) :
+le serveur doit être joignable en HTTPS. Refusés avant tout envoi : mélange photo + vidéo
+(`MIXED_MEDIA_NOT_SUPPORTED`), WebP et autres formats (`MEDIA_TYPE_NOT_SUPPORTED`), plus de 10 photos,
+format Reel (`FORMAT_NOT_SUPPORTED`, API distincte). Premier commentaire : non pris en charge
+(permission `pages_manage_engagement`), noté `first_comment: not_supported` dans le résultat.
+
+Erreurs : 190 → `TOKEN_INVALID` (Page à reconnecter) ; 4, 17, 32, 613, 80001 → `RATE_LIMITED` temporaire ;
+10, 200-299 → `PERMISSION_DENIED` ; 506 → `DUPLICATE_CONTENT` ; 368 → `POLICY_BLOCKED` ; fichier
+illisible → `MEDIA_REJECTED` ; 5xx ou codes 1, 2 après envoi → résultat inconnu, jamais relancé.
+
+Tests : `FacebookOAuthTest` (10), `FacebookPublishingTest` (9) — API Graph SIMULÉE.
+
+## 17. Instagram (comptes professionnels)
+
+Sources officielles (developers.facebook.com/docs/instagram-platform) :
+`instagram-api-with-instagram-login/business-login`, `reference/access_token`,
+`reference/refresh_access_token`, `content-publishing`, `reference/ig-user/media`,
+`reference/ig-user/media_publish`, `reference/ig-container`.
+
+### Variables d'environnement
+
+```dotenv
+INSTAGRAM_APP_ID=        # ID de l'app INSTAGRAM (différent de META_APP_ID)
+INSTAGRAM_APP_SECRET=    # secret : uniquement dans .env
+INSTAGRAM_REDIRECT_URI=https://<domaine>/oauth/instagram/callback
+INSTAGRAM_GRAPH_VERSION=v23.0
+```
+
+Dans l'app Meta : cas d'usage **« Gérer la messagerie et le contenu sur Instagram »**, configuration de
+l'**API avec connexion Instagram** (qui fournit l'ID et la clé secrète de l'app Instagram), URI de
+redirection **identique** à `INSTAGRAM_REDIRECT_URI`.
+
+### Connexion
+
+1. `POST /api/v1/social/instagram/connect` → URL `https://www.instagram.com/oauth/authorize` avec
+   `instagram_business_basic, instagram_business_content_publish, instagram_business_manage_insights`.
+2. `GET /oauth/instagram/callback` (`InstagramCallbackController`) : `state` → erreur → échange du code
+   (`POST https://api.instagram.com/oauth/access_token`, le suffixe `#_` éventuel est retiré) → jeton
+   **longue durée** (`ig_exchange_token`, 60 jours) → permissions de base et de publication exigées
+   (`PUBLISH_SCOPE_DENIED` sinon) → profil (`GET /me` : `user_id`, `username`, `account_type`).
+3. `ConnectInstagramAccount` : compte personnel refusé (`NOT_PROFESSIONAL_ACCOUNT`) ; sinon un compte
+   par identifiant Instagram (`business` ou `creator`), un seul jeton actif chiffré, permissions accordées.
+
+**Jeton (`InstagramTokenManager`) :** 60 jours, renouvelé sous verrou (`ig_refresh_token`) quand il expire
+dans moins de 10 jours et a au moins 24 h ; échec passager → jeton actuel conservé ; expiré ou refusé →
+compte « à reconnecter ». L'échange et le renouvellement n'admettent que des paramètres d'URL
+(documentation officielle) : ces URL ne sont jamais journalisées.
+
+### Publication (`InstagramPublisher`, deux temps)
+
+1. **Conteneur** `POST /{ig-user-id}/media` : photo (`image_url`, `caption`), Reel (`media_type=REELS`,
+   `video_url`, `share_to_feed`, `cover_url` facultatif), story (`media_type=STORIES`), carrousel (un
+   conteneur `is_carousel_item` par photo, puis `media_type=CAROUSEL` + `children`).
+2. **Publication** `POST /{ig-user-id}/media_publish` (`creation_id`) → identifiant du média, puis lien
+   public (`permalink`).
+
+Photos : publiées aussitôt (média pas encore prêt, code 9007 → suivi). **Vidéos** (Reel, story vidéo) :
+`PublishResult::processing(conteneur)` puis `checkStatus()` (`GET /{conteneur}?fields=status_code`) :
+`IN_PROGRESS` → nouvelle vérification ; `FINISHED` → `media_publish` ; `ERROR` → `MEDIA_PROCESSING_FAILED` ;
+`EXPIRED` → `CONTAINER_EXPIRED` ; `PUBLISHED` ou statut inattendu → résultat inconnu.
+
+Refusés avant tout envoi : aucun média (`MEDIA_REQUIRED`), photo non JPEG (`MEDIA_TYPE_NOT_SUPPORTED`,
+exigence d'Instagram), Reel sans exactement une vidéo, carrousel de moins de 2 ou plus de 10 photos, ou
+avec vidéo (V1), légende de plus de 2 200 caractères ou 30 hashtags. Premier commentaire : non pris en
+charge (permission distincte).
+
+Erreurs : 190 → `TOKEN_INVALID` ; code 9 / sous-code 2207042 → `PUBLISH_LIMIT_REACHED` temporaire (100
+publications par 24 h) ; 4, 17, 32, 613 → `RATE_LIMITED` ; 10, 200-299 → `PERMISSION_DENIED` ; 36003 et
+sous-codes 2207xxx → `MEDIA_REJECTED` ; 5xx ou codes 1, 2 → résultat inconnu.
+
+Tests : `InstagramOAuthTest` (9), `InstagramPublishingTest` (7) — API SIMULÉE.
+
+### Test réel (Facebook et Instagram)
+
+1. Renseignez les variables ci-dessus et déclarez les deux URI de retour dans l'app Meta.
+2. Tant que l'app est en mode développement : utilisez un compte ayant un rôle sur l'app (Admin, ou
+   Testeur / Testeur Instagram ajouté dans Rôles de l'app).
+3. Réseaux sociaux › Facebook › Connecter : cochez la Page ; Réseaux sociaux › Instagram › Connecter.
+4. Composer : texte + photo vers la Page ; photo JPEG puis Reel vers Instagram ; vérifiez « Publié » et
+   les liens.

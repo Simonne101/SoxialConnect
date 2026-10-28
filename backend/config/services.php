@@ -105,4 +105,30 @@ return [
         'max_photo_mb' => 10,
     ],
 
+    /*
+     * Facebook — Pages (Facebook Login + Graph API) — docs/publishing.md §16. Valeurs uniquement dans
+     * .env. redirect : URI EXACTE déclarée dans l'app Meta (Facebook Login → URI de redirection OAuth
+     * valides). login_config_id : configuration « Facebook Login for Business » si l'app l'impose
+     * (sinon les scopes sont demandés directement). graph_version : version de l'API Graph appelée.
+     */
+    'facebook' => [
+        'client_id' => env('META_APP_ID'),
+        'client_secret' => env('META_APP_SECRET'),
+        'redirect' => env('FACEBOOK_REDIRECT_URI'),
+        'login_config_id' => env('FACEBOOK_LOGIN_CONFIG_ID'),
+        'graph_version' => env('META_GRAPH_VERSION', 'v23.0'),
+    ],
+
+    /*
+     * Instagram — comptes professionnels (API Instagram avec connexion Instagram) — docs/publishing.md
+     * §17. Identifiants PROPRES à Instagram (ID et clé secrète de l'app Instagram, distincts de ceux de
+     * l'app Meta). redirect : URI EXACTE déclarée dans les paramètres « Connexion Instagram » de l'app.
+     */
+    'instagram' => [
+        'client_id' => env('INSTAGRAM_APP_ID'),
+        'client_secret' => env('INSTAGRAM_APP_SECRET'),
+        'redirect' => env('INSTAGRAM_REDIRECT_URI'),
+        'graph_version' => env('INSTAGRAM_GRAPH_VERSION', 'v23.0'),
+    ],
+
 ];

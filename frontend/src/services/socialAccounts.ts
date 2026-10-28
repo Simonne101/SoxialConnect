@@ -72,6 +72,8 @@ const CONSENT_PAGES: Partial<Record<PlatformKey, string>> = {
   tiktok: "https://www.tiktok.com/v2/auth/authorize/",
   linkedin: "https://www.linkedin.com/oauth/v2/authorization",
   x: "https://x.com/i/oauth2/authorize",
+  facebook: "https://www.facebook.com/",
+  instagram: "https://www.instagram.com/oauth/authorize",
 }
 
 /** Réseaux connectables via OAuth officiel (backend branché). */

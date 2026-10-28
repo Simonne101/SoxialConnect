@@ -66,13 +66,11 @@ export const PLATFORMS: Record<PlatformKey, PlatformConfig> = {
     availability: "available",
     maxChars: 63206,
     requiresMedia: false,
-    mediaHint: "Texte, lien, photos ou vidéo",
-    formats: [
-      { value: "feed", label: "Publication" },
-      { value: "reel", label: "Reel" },
-    ],
+    mediaHint: "Texte, 1 à 10 photos ou une vidéo",
+    // Reels et premier commentaire : API et permissions Meta distinctes, pas encore pris en charge.
+    formats: [{ value: "feed", label: "Publication" }],
     preview: { width: 1200, height: 630, label: "Lien / Image", ratio: "1.91 / 1" },
-    variantFields: ["caption", "hashtags", "firstComment"],
+    variantFields: ["caption", "hashtags"],
     accountRequirement: "Une Page Facebook (les profils personnels ne sont pas pris en charge par l'API).",
     permissions: [
       { scope: "pages_show_list", label: "Voir la liste de vos Pages" },
@@ -99,7 +97,7 @@ export const PLATFORMS: Record<PlatformKey, PlatformConfig> = {
     availability: "available",
     maxChars: 2200,
     requiresMedia: true,
-    mediaHint: "Image, carrousel ou Reel (média obligatoire)",
+    mediaHint: "Photo JPEG, carrousel de photos, Reel ou story (média obligatoire)",
     formats: [
       { value: "feed", label: "Publication" },
       { value: "carousel", label: "Carrousel" },
@@ -107,7 +105,8 @@ export const PLATFORMS: Record<PlatformKey, PlatformConfig> = {
       { value: "story", label: "Story" },
     ],
     preview: { width: 1080, height: 1080, label: "Image carrée", ratio: "1 / 1" },
-    variantFields: ["caption", "hashtags", "cover", "firstComment"],
+    // Premier commentaire : permission Instagram distincte, pas encore prise en charge.
+    variantFields: ["caption", "hashtags", "cover"],
     accountRequirement: "Un compte Instagram professionnel (Business ou Créateur).",
     permissions: [
       { scope: "instagram_business_basic", label: "Voir votre profil professionnel" },

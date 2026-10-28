@@ -1,5 +1,7 @@
 <?php
 
+use App\Domain\Publishing\Adapters\FacebookPublisher;
+use App\Domain\Publishing\Adapters\InstagramPublisher;
 use App\Domain\Publishing\Adapters\LinkedInPublisher;
 use App\Domain\Publishing\Adapters\TelegramPublisher;
 use App\Domain\Publishing\Adapters\TikTokPublisher;
@@ -18,6 +20,9 @@ return [
      * (services.youtube, services.tiktok), l'adaptateur répond lui-même NOT_CONFIGURED.
      * Telegram : sans bot configuré (services.telegram.bot_token), NOT_CONFIGURED également.
      * X : texte uniquement (médias refusés avant tout envoi) ; sans identifiants X, NOT_CONFIGURED.
+     * Facebook : Pages (texte, photos, une vidéo) ; sans identifiants Meta, NOT_CONFIGURED.
+     * Instagram : comptes professionnels (photo, carrousel, Reel, story ; vidéos suivies jusqu'à leur
+     * publication) ; sans identifiants de l'app Instagram, NOT_CONFIGURED.
      */
     'adapters' => [
         'youtube' => YouTubePublisher::class,
@@ -25,6 +30,8 @@ return [
         'telegram' => TelegramPublisher::class,
         'linkedin' => LinkedInPublisher::class,
         'x' => XPublisher::class,
+        'facebook' => FacebookPublisher::class,
+        'instagram' => InstagramPublisher::class,
     ],
 
     /* Tentatives automatiques par demande de publication (erreurs temporaires uniquement). */

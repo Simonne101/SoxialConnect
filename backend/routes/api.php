@@ -126,9 +126,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             // d'un compte (limite « analytics-sync » : quotas des plateformes).
             Route::get('analytics', [AnalyticsController::class, 'index'])->name('analytics.index');
             Route::post('analytics/sync', [AnalyticsController::class, 'sync'])->middleware('throttle:analytics-sync')->name('analytics.sync');
-            // Connexion OAuth officielle (YouTube, TikTok, LinkedIn, X) : limite « oauth » par utilisateur (docs/security.md §12).
+            // Connexion OAuth officielle (YouTube, TikTok, LinkedIn, X, Facebook, Instagram) : limite « oauth » par utilisateur (docs/security.md §12).
             Route::post('social/{provider}/connect', [SocialController::class, 'connect'])
-                ->whereIn('provider', ['youtube', 'tiktok', 'linkedin', 'x'])
+                ->whereIn('provider', ['youtube', 'tiktok', 'linkedin', 'x', 'facebook', 'instagram'])
                 ->middleware('throttle:oauth')->name('social.connect');
             // Telegram (bot partagé, sans OAuth) : lien de liaison d'une chaîne ou d'un groupe.
             Route::post('social/telegram/link', [SocialController::class, 'telegramLink'])

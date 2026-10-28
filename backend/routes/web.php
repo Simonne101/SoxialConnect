@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\OAuth\DataPortabilityCallbackController;
+use App\Http\Controllers\OAuth\FacebookCallbackController;
+use App\Http\Controllers\OAuth\InstagramCallbackController;
 use App\Http\Controllers\OAuth\LinkedInCallbackController;
 use App\Http\Controllers\OAuth\TikTokCallbackController;
 use App\Http\Controllers\OAuth\XCallbackController;
@@ -41,6 +43,18 @@ Route::get('/oauth/linkedin/callback', LinkedInCallbackController::class)
 Route::get('/oauth/x/callback', XCallbackController::class)
     ->middleware('throttle:20,1')
     ->name('oauth.x.callback');
+
+// Retour OAuth de Facebook (Pages) : même principe. Redirect URI EXACTE déclarée dans l'app Meta
+// (FACEBOOK_REDIRECT_URI) ; en local, via le tunnel HTTPS puis le relais Vite (/oauth).
+Route::get('/oauth/facebook/callback', FacebookCallbackController::class)
+    ->middleware('throttle:20,1')
+    ->name('oauth.facebook.callback');
+
+// Retour OAuth d'Instagram (connexion Instagram, comptes professionnels) : même principe. Redirect URI
+// EXACTE déclarée dans les paramètres « Connexion Instagram » de l'app (INSTAGRAM_REDIRECT_URI).
+Route::get('/oauth/instagram/callback', InstagramCallbackController::class)
+    ->middleware('throttle:20,1')
+    ->name('oauth.instagram.callback');
 
 // Retour OAuth de Google pour l'export officiel Data Portability (ADR-054) : même principe. Redirect URI
 // déclarée chez Google (DATA_PORTABILITY_REDIRECT_URI) ; en local, relayée par Vite (/oauth).
