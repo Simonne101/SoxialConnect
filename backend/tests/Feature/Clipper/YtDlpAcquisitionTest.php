@@ -21,6 +21,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Process\Process;
@@ -136,12 +137,52 @@ class YtDlpAcquisitionTest extends TestCase
             $this->assertSame('youtube', $args[array_search('--use-extractors', $args, true) + 1]);
             $this->assertNotContains('--cookies', $args);
             $this->assertNotContains('--cookies-from-browser', $args);
+            $this->assertNotContains('--proxy', $args, 'Aucun relais configuré : connexion directe.');
             $this->assertStringNotContainsString('si=tracking', implode(' ', $args));
         }
         $this->assertContains('-J', $metadata);
         $this->assertSame('mp4', $download[array_search('--merge-output-format', $download, true) + 1]);
         $this->assertStringContainsString('[height<=1080]', $download[array_search('-f', $download, true) + 1], 'Format transmis intact.');
         $this->assertStringEndsWith('source.%(ext)s', $download[array_search('-o', $download, true) + 1], 'Modèle de sortie transmis intact.');
+    }
+
+    // --- Relais réseau (YouTube refuse les adresses des hébergeurs) --------------------------------
+
+    public function test_a_configured_proxy_is_passed_to_every_ytdlp_call_and_an_invalid_one_never_is(): void
+    {
+        $file = $this->fake.'/fixture.mp4';
+        $this->mp4($file, 2);
+        $proxy = 'socks5h://relais:s3cret@127.0.0.1:1080';
+        config(['video.sources.yt_dlp.proxy' => " {$proxy} "]);
+        $this->scenario(['download' => 'copy', 'file' => $file]);
+        $this->acquire($this->create(rights: true));
+
+        [$metadata, $download] = $this->calls();
+        foreach ([$metadata, $download] as $args) {
+            $this->assertSame($proxy, $args[array_search('--proxy', $args, true) + 1], 'Même relais pour les métadonnées et le téléchargement.');
+            $this->assertContains('--no-cookies', $args, 'Le relais ne remplace aucun garde-fou.');
+        }
+
+        foreach (['ftp://relais.example:21', 'relais.example:1080', 'socks5://'] as $invalid) {
+            config(['video.sources.yt_dlp.proxy' => $invalid]);
+            $this->scenario(['download' => 'copy', 'file' => $file]);
+            $this->acquire($this->create(rights: true));
+            $this->assertNotContains('--proxy', $this->calls()[0], $invalid);
+        }
+    }
+
+    public function test_an_unreachable_proxy_is_a_temporary_error_and_its_credentials_are_never_logged(): void
+    {
+        config(['video.sources.yt_dlp.proxy' => 'socks5h://relais:s3cret@10.0.0.9:1080']);
+        Log::spy();
+        $this->scenario(['meta_error' => 'ERROR: [youtube] dQw4w9WgXcQ: Unable to download API page: [Errno 111] Connection refused (caused by ProxyError("socks5h://relais:s3cret@10.0.0.9:1080 unreachable"))']);
+        $source = $this->acquire($this->create(rights: true));
+
+        $this->assertSame([VideoSourceStatus::WaitingForProvider, 'PROXY_UNAVAILABLE'], [$source->status, $source->error_code]);
+        $this->assertStringNotContainsString('s3cret', (string) $source->error_message);
+        Log::shouldHaveReceived('warning')->withArgs(fn ($message, $context = []) => $message === 'clipper.ytdlp_failed'
+            && ($context['error_code'] ?? null) === 'PROXY_UNAVAILABLE'
+            && ! str_contains((string) ($context['stderr'] ?? ''), 's3cret'));
     }
 
     // --- Parcours depuis l'interface (régression) ------------------------------------------------

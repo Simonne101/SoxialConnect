@@ -242,6 +242,10 @@ return [
             'max_height' => (int) env('YT_DLP_MAX_HEIGHT', 1080),
             // Moteur JavaScript requis par l'extracteur YouTube (node, deno…).
             'js_runtime' => env('YT_DLP_JS_RUNTIME', 'node'),
+            // Relais réseau de yt-dlp (http://, https://, socks5://, socks5h://, identifiants acceptés) : YouTube
+            // refuse les adresses des hébergeurs (« Sign in to confirm you're not a bot »). Vide = connexion
+            // directe. Secret : jamais journalisé ni renvoyé (identifiants masqués dans les extraits d'erreur).
+            'proxy' => env('YT_DLP_PROXY'),
         ],
     ],
 

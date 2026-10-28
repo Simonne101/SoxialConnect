@@ -202,7 +202,31 @@ class YtDlpVideoSourceProvider implements VideoSourceProvider
             '--js-runtimes', (string) config('video.sources.yt_dlp.js_runtime', 'node'),
             '--socket-timeout', (string) max(5, (int) config('video.sources.yt_dlp.socket_timeout', 30)),
             '--retries', '3', '--no-progress', '--no-warnings',
+            ...$this->proxyArguments(),
         ];
+    }
+
+    /**
+     * Relais réseau configuré (video.sources.yt_dlp.proxy) : schéma http(s) ou socks5(h) et hôte obligatoires.
+     * Une valeur invalide n'est jamais transmise (connexion directe) et n'est signalée que par son absence de
+     * validité, jamais par son contenu (elle peut contenir des identifiants).
+     *
+     * @return list<string>
+     */
+    private function proxyArguments(): array
+    {
+        $proxy = trim((string) config('video.sources.yt_dlp.proxy'));
+        if ($proxy === '') {
+            return [];
+        }
+        $parts = parse_url($proxy);
+        if (! is_array($parts) || ! in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https', 'socks5', 'socks5h'], true) || ($parts['host'] ?? '') === '') {
+            Log::warning('clipper.ytdlp_proxy_invalid');
+
+            return [];
+        }
+
+        return ['--proxy', $proxy];
     }
 
     /**
@@ -288,7 +312,7 @@ class YtDlpVideoSourceProvider implements VideoSourceProvider
     private function excerpt(string $stderr): string
     {
         $lines = array_slice(array_values(array_filter(array_map('trim', preg_split('/\R/', $stderr) ?: []))), -3);
-        $text = preg_replace(['#https?://\S+#i', '#[A-Za-z]:[\\\\/][^\s"\']*#', '#(?<![\w.])/(?:[\w.-]+/)+[\w.-]*#'], ['[url]', '[path]', '[path]'], implode(' | ', $lines));
+        $text = preg_replace(['#\b[a-z][a-z0-9+.-]*://\S+#i', '#[A-Za-z]:[\\\\/][^\s"\']*#', '#(?<![\w.])/(?:[\w.-]+/)+[\w.-]*#'], ['[url]', '[path]', '[path]'], implode(' | ', $lines));
 
         return mb_substr((string) $text, 0, 500);
     }
@@ -305,6 +329,8 @@ class YtDlpVideoSourceProvider implements VideoSourceProvider
             $has('confirm your age', 'age-restricted', 'inappropriate for some users') => AcquisitionStep::unavailable('AGE_RESTRICTED', 'Cette vidéo est soumise à une limite d\'âge : elle ne peut pas être récupérée automatiquement.'),
             // L'exécutable lui-même n'a pas pu démarrer (décompression impossible) : outil indisponible, pas YouTube.
             $has('[pyi-', 'could not create temporary directory') => AcquisitionStep::failed('YTDLP_UNAVAILABLE', 'L\'outil de récupération des vidéos n\'a pas pu démarrer sur le serveur.', transient: true, retryAfterSeconds: 900),
+            // Relais réseau configuré injoignable ou refusant la connexion : panne du relais, pas refus de YouTube.
+            $has('proxy', 'socks') => AcquisitionStep::failed('PROXY_UNAVAILABLE', 'Le relais réseau utilisé pour récupérer les vidéos ne répond pas : nouvel essai automatique dans quelques minutes. Vous pouvez aussi importer le fichier de la vidéo.', transient: true, retryAfterSeconds: 600),
             $has('not a bot', 'sign in to confirm') => AcquisitionStep::failed('BLOCKED_BY_YOUTUBE', 'YouTube a refusé la récupération depuis ce serveur (vérification anti-robot). Importez le fichier de la vidéo.'),
             $has('http error 403') => AcquisitionStep::failed('BLOCKED_BY_YOUTUBE', 'YouTube a refusé le téléchargement de la vidéo depuis ce serveur (accès refusé). Nouvel essai automatique dans quelques minutes ; si le refus persiste, importez le fichier de la vidéo.', transient: true, retryAfterSeconds: 300),
             $has('available in your country', 'geo restrict', 'geo-restrict') => AcquisitionStep::unavailable('GEO_RESTRICTED', 'Cette vidéo n\'est pas disponible dans la région du serveur.'),
