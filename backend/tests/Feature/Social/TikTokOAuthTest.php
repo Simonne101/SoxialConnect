@@ -86,7 +86,8 @@ class TikTokOAuthTest extends TestCase
         config(['services.youtube.client_id' => 'id', 'services.youtube.client_secret' => 's', 'services.youtube.redirect' => 'http://localhost:5173/oauth/youtube/callback']);
         $this->actingAs($this->user)->fromSpa()->postJson('/api/v1/social/youtube/connect')->assertOk()
             ->assertJsonPath('data.authorization_url', fn ($u) => str_starts_with($u, 'https://accounts.google.com/'));
-        $this->actingAs($this->user)->fromSpa()->postJson('/api/v1/social/facebook/connect')->assertNotFound();
+        // Réseau sans connexion OAuth livrée : route inexistante.
+        $this->actingAs($this->user)->fromSpa()->postJson('/api/v1/social/pinterest/connect')->assertNotFound();
     }
 
     public function test_connect_explains_missing_credentials_and_refuses_guests(): void

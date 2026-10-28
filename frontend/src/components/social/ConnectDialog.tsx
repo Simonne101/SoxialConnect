@@ -36,6 +36,8 @@ const ADD_ANOTHER_HINT: Partial<Record<SocialAccount["platform"], string>> = {
   linkedin: "LinkedIn connecte le profil ouvert dans votre navigateur : déconnectez-vous de linkedin.com (ou utilisez une fenêtre de navigation privée), puis connectez-vous avec l'autre profil.",
   x: "X connecte le compte ouvert dans votre navigateur : changez de compte sur x.com (ou utilisez une fenêtre de navigation privée) avant de continuer.",
   tiktok: "TikTok connecte le compte ouvert dans votre navigateur : changez de compte sur tiktok.com (ou utilisez une fenêtre de navigation privée) avant de continuer.",
+  instagram: "Instagram connecte le compte ouvert dans votre navigateur : changez de compte sur instagram.com (ou utilisez une fenêtre de navigation privée) avant de continuer.",
+  facebook: "Facebook vous demandera quelles Pages partager : cochez toutes les Pages à gérer, y compris celles déjà connectées. Pour les Pages d'un autre compte Facebook, changez de compte sur facebook.com (ou utilisez une fenêtre de navigation privée).",
 }
 
 export function ConnectDialog({ account, addingAnother = false, onOpenChange }: { account: SocialAccount | null; addingAnother?: boolean; onOpenChange: (o: boolean) => void }) {

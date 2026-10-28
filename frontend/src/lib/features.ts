@@ -18,7 +18,7 @@ export const features = {
 } as const
 
 /** Réseaux dont la connexion OAuth officielle est livrée (backend branché). */
-export const OAUTH_PLATFORMS: readonly PlatformKey[] = ["youtube", "tiktok", "linkedin", "x"]
+export const OAUTH_PLATFORMS: readonly PlatformKey[] = ["youtube", "tiktok", "linkedin", "x", "facebook", "instagram"]
 
 export const PUBLISHING_UNAVAILABLE = "Disponible avec la publication réelle"
 export const MEDIA_UNAVAILABLE = "Bientôt disponible"

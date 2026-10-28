@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Social\Actions\ConnectTelegramChat;
 use App\Domain\Social\Actions\DisconnectSocialAccount;
 use App\Domain\Social\Enums\SocialAccountStatus;
+use App\Domain\Social\OAuth\FacebookOAuthProvider;
+use App\Domain\Social\OAuth\InstagramOAuthProvider;
 use App\Domain\Social\OAuth\LinkedInOAuthProvider;
 use App\Domain\Social\OAuth\OAuthException;
 use App\Domain\Social\OAuth\OAuthStateStore;
@@ -18,6 +20,8 @@ use App\Domain\Social\Telegram\TelegramLinkException;
 use App\Domain\Social\Telegram\TelegramLinkStore;
 use App\Domain\Social\TikTok\TikTokApiException;
 use App\Domain\Social\TikTok\TikTokCreatorInfo;
+use App\Domain\Social\Tokens\FacebookTokenManager;
+use App\Domain\Social\Tokens\InstagramTokenManager;
 use App\Domain\Social\Tokens\LinkedInTokenManager;
 use App\Domain\Social\Tokens\TikTokTokenManager;
 use App\Domain\Social\Tokens\XTokenManager;
@@ -52,7 +56,7 @@ class SocialController extends Controller
 
     /**
      * POST /social/{provider}/connect : démarre la connexion OAuth officielle du réseau demandé
-     * (route limitée à youtube|tiktok|linkedin|x). Réponse : l'URL de consentement vers laquelle la SPA
+     * (route limitée à youtube|tiktok|linkedin|x|facebook|instagram). Réponse : l'URL de consentement vers laquelle la SPA
      * redirige le navigateur ; le retour arrive sur le callback web du réseau.
      */
     public function connect(Request $request, string $provider, OAuthStateStore $states): JsonResponse
@@ -62,6 +66,8 @@ class SocialController extends Controller
             TikTokOAuthProvider::PROVIDER => $this->connectTikTok($request, $states, app(TikTokOAuthProvider::class)),
             LinkedInOAuthProvider::PROVIDER => $this->connectLinkedIn($request, $states, app(LinkedInOAuthProvider::class)),
             XOAuthProvider::PROVIDER => $this->connectX($request, $states, app(XOAuthProvider::class)),
+            FacebookOAuthProvider::PROVIDER => $this->connectFacebook($request, $states, app(FacebookOAuthProvider::class)),
+            InstagramOAuthProvider::PROVIDER => $this->connectInstagram($request, $states, app(InstagramOAuthProvider::class)),
         };
     }
 
@@ -77,6 +83,38 @@ class SocialController extends Controller
         }
 
         $issued = $states->issue($request->user(), LinkedInOAuthProvider::PROVIDER);
+
+        return ApiResponse::ok(['authorization_url' => $oauth->authorizationUrl($issued['state'])]);
+    }
+
+    /**
+     * Démarre la connexion Facebook (Pages) : state à usage unique lié à l'utilisateur, puis URL de
+     * consentement Facebook (pages_show_list, pages_manage_posts, pages_read_engagement, read_insights).
+     */
+    public function connectFacebook(Request $request, OAuthStateStore $states, FacebookOAuthProvider $oauth): JsonResponse
+    {
+        Gate::authorize('create', SocialAccount::class);
+        if (! $oauth->isConfigured()) {
+            return ApiResponse::error($oauth->notConfigured()->getMessage(), 409);
+        }
+
+        $issued = $states->issue($request->user(), FacebookOAuthProvider::PROVIDER);
+
+        return ApiResponse::ok(['authorization_url' => $oauth->authorizationUrl($issued['state'])]);
+    }
+
+    /**
+     * Démarre la connexion Instagram (comptes professionnels) : state à usage unique lié à l'utilisateur,
+     * puis URL de consentement Instagram (instagram_business_basic, _content_publish, _manage_insights).
+     */
+    public function connectInstagram(Request $request, OAuthStateStore $states, InstagramOAuthProvider $oauth): JsonResponse
+    {
+        Gate::authorize('create', SocialAccount::class);
+        if (! $oauth->isConfigured()) {
+            return ApiResponse::error($oauth->notConfigured()->getMessage(), 409);
+        }
+
+        $issued = $states->issue($request->user(), InstagramOAuthProvider::PROVIDER);
 
         return ApiResponse::ok(['authorization_url' => $oauth->authorizationUrl($issued['state'])]);
     }
@@ -162,6 +200,8 @@ class SocialController extends Controller
             ConnectTelegramChat::PROVIDER => $this->syncTelegram($account, app(TelegramBotClient::class), app(TelegramChatInspector::class)),
             LinkedInOAuthProvider::PROVIDER => $this->syncLinkedIn($account, app(LinkedInTokenManager::class), app(LinkedInOAuthProvider::class)),
             XOAuthProvider::PROVIDER => $this->syncX($account, app(XTokenManager::class), app(XOAuthProvider::class)),
+            FacebookOAuthProvider::PROVIDER => $this->syncFacebook($account, app(FacebookTokenManager::class), app(FacebookOAuthProvider::class)),
+            InstagramOAuthProvider::PROVIDER => $this->syncInstagram($account, app(InstagramTokenManager::class), app(InstagramOAuthProvider::class)),
             default => ApiResponse::error('La synchronisation de ce réseau sera disponible avec son intégration officielle.', 409),
         };
     }
@@ -248,6 +288,55 @@ class SocialController extends Controller
         $account->forceFill(['status' => SocialAccountStatus::Connected, 'status_reason' => null, 'last_synced_at' => now()])->save();
 
         return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), 'Destination synchronisée.');
+    }
+
+    /** Facebook : nom, catégorie et photo de la Page relus avec son jeton ; la Page doit rester la même. */
+    private function syncFacebook(SocialAccount $account, FacebookTokenManager $tokens, FacebookOAuthProvider $oauth): JsonResponse
+    {
+        try {
+            $page = $oauth->fetchPage($account->external_account_id, $tokens->accessTokenFor($account));
+        } catch (OAuthException $e) {
+            if ($e->requiresReconnect && in_array($e->errorCode, ['TOKEN_INVALID', 'PERMISSION_DENIED'], true)) {
+                $tokens->rejected($account);
+            }
+
+            return ApiResponse::error($e->getMessage(), $e->transient ? 503 : 409);
+        }
+        if (! hash_equals((string) $account->external_account_id, $page['id'])) {
+            return ApiResponse::error('L\'autorisation correspond désormais à une autre Page Facebook. Reconnectez la Page.', 409);
+        }
+        $account->fill([
+            'display_name' => $page['name'],
+            'metadata' => array_filter(array_merge((array) $account->metadata, ['category' => $page['category'], 'picture_url' => $page['picture']])),
+        ]);
+        $account->forceFill(['last_synced_at' => now()])->save();
+
+        return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), 'Page synchronisée.');
+    }
+
+    /** Instagram : nom, @identifiant, type et photo relus ; le compte professionnel doit rester le même. */
+    private function syncInstagram(SocialAccount $account, InstagramTokenManager $tokens, InstagramOAuthProvider $oauth): JsonResponse
+    {
+        try {
+            $profile = $oauth->fetchProfile($tokens->accessTokenFor($account));
+        } catch (OAuthException $e) {
+            if ($e->requiresReconnect && in_array($e->errorCode, ['TOKEN_INVALID', 'PERMISSION_DENIED'], true)) {
+                $tokens->rejected($account);
+            }
+
+            return ApiResponse::error($e->getMessage(), $e->transient ? 503 : 409);
+        }
+        if (! hash_equals((string) $account->external_account_id, $profile['user_id'])) {
+            return ApiResponse::error('L\'autorisation correspond désormais à un autre compte Instagram. Reconnectez le compte.', 409);
+        }
+        $account->fill([
+            'display_name' => $profile['name'],
+            'username' => $profile['username'] !== '' ? '@'.$profile['username'] : null,
+            'metadata' => array_filter(array_merge((array) $account->metadata, ['instagram_account_type' => $profile['account_type'], 'picture_url' => $profile['picture']])),
+        ]);
+        $account->forceFill(['last_synced_at' => now()])->save();
+
+        return ApiResponse::ok((new SocialAccountResource($account->load('platform')))->resolve(), 'Compte synchronisé.');
     }
 
     /** LinkedIn : nom et e-mail relus (userinfo) ; le membre doit rester le même. */

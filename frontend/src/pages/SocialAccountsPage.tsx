@@ -34,6 +34,10 @@ const OAUTH_ERRORS: Record<string, (network: string) => string> = {
   TOKEN_REVOKED: (n) => `${n} a refusé l'autorisation (lien expiré). Relancez la connexion.`,
   API_ACCESS_DENIED: (n) => `${n} refuse l'accès à son API pour SoxialConnect (offre ou crédits API). Contactez l'administrateur.`,
   RATE_LIMITED: (n) => `${n} limite temporairement les requêtes. Réessayez dans quelques minutes.`,
+  NO_PAGES: () => "Aucune Page Facebook n'a été partagée avec SoxialConnect. Reconnectez-vous et sélectionnez au moins une Page (les profils personnels ne sont pas pris en charge).",
+  NO_PUBLISHABLE_PAGE: () => "Votre rôle sur les Pages sélectionnées ne permet pas d'y publier : il faut être administrateur, éditeur ou créateur de contenu de la Page.",
+  NOT_PROFESSIONAL_ACCOUNT: () => "Ce compte Instagram est un compte personnel. Passez-le en compte professionnel (Business ou Créateur) dans les paramètres d'Instagram, puis reconnectez-le.",
+  PERMISSION_DENIED: (n) => `${n} refuse l'accès demandé. Reconnectez-vous en acceptant toutes les autorisations.`,
 }
 
 function entitiesLabel(a: SocialAccount) {
@@ -60,7 +64,9 @@ export default function SocialAccountsPage() {
     const provider = params.get("oauth")
     if (!provider) return
     const name = provider in PLATFORMS ? PLATFORMS[provider as keyof typeof PLATFORMS].name : "Le réseau"
-    if (params.get("status") === "connected") toast.success(`${name} est connecté.`, { id: "oauth-result" })
+    // Facebook : plusieurs Pages peuvent être connectées en une seule autorisation.
+    const count = Number(params.get("count") ?? 0)
+    if (params.get("status") === "connected") toast.success(count > 1 ? `${count} Pages ${name} sont connectées.` : `${name} est connecté.`, { id: "oauth-result" })
     else toast.error(OAUTH_ERRORS[params.get("code") ?? ""]?.(name) ?? `La connexion à ${name} a échoué. Réessayez.`, { id: "oauth-result" })
     void qc.invalidateQueries({ queryKey: qk.socialAccounts })
     setParams({}, { replace: true })
